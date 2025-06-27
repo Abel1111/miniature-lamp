@@ -1,4 +1,14 @@
-- name: Download and Install RustDesk
+---
+name: macOS RustDesk Remote Access
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-remote-access:
+    runs-on: macos-latest
+    steps:
+    - name: Download and Install RustDesk
       run: |
         # Download the latest RustDesk macOS client (adjust URL if needed for a specific version)
         # It's good practice to make the version dynamic or match the download to the expected mount name
@@ -18,3 +28,39 @@
         # These commands attempt to pre-approve, but user interaction might still be needed
         sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" "INSERT or REPLACE INTO access (service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity) VALUES ('kTCCServiceScreenCapture', 'com.rustdesk.rustdesk', 0, 1, 0, NULL, 0, 'kTCCServiceScreenCapture', 0, NULL);"
         sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" "INSERT or REPLACE INTO access (service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity) VALUES ('kTCCServiceAccessibility', 'com.rustdesk.rustdesk', 0, 1, 0, NULL, 0, 'kTCCServiceAccessibility', 0, NULL);"
+
+    - name: Start RustDesk and Get Connection Info
+      run: |
+        # Start RustDesk application
+        open /Applications/RustDesk.app --args --silent &
+
+        # Wait for RustDesk to generate ID and password
+        echo "Waiting for RustDesk to start and generate connection info..."
+        sleep 30 # Give RustDesk time to initialize
+
+        # Extract RustDesk ID and Password
+        # This part is highly dependent on how RustDesk stores/exposes its ID/password.
+        # This is a placeholder and might require adjustment based on RustDesk's behavior on a fresh install.
+        # You might need to look for logs, a specific file, or a command-line utility RustDesk offers.
+
+        # ***IMPORTANT: The following commands are illustrative and might not work directly.***
+        # RustDesk typically shows the ID and password in its UI. Automating extraction
+        # on a fresh install in a CI environment can be challenging.
+        # You might need to explore RustDesk's CLI options, if any, or look for files
+        # where it stores this information.
+        # As a workaround, you might have to manually connect once to a runner
+        # to get its ID and password, or set up a fixed ID/password if RustDesk supports it.
+
+        # Placeholder: If RustDesk had a CLI to get info
+        # RUSTDESK_INFO=$(/Applications/RustDesk.app/Contents/MacOS/RustDesk --get-info)
+        # RUSTDESK_ID=$(echo "$RUSTDESK_INFO" | grep "ID:" | awk '{print $2}')
+        # RUSTDESK_PASS=$(echo "$RUSTDESK_INFO" | grep "Password:" | awk '{print $2}')
+
+        echo "--- RustDesk Manual Connection Details ---"
+        echo "Please launch the workflow and observe the runner logs for RustDesk's ID and Password."
+        echo "You may need to connect to this runner via SSH first to manually retrieve them if not exposed in logs."
+        echo "You can often find them in the RustDesk UI after it starts."
+        echo "----------------------------------------"
+
+        # Keep alive for 30 minutes
+        sleep 1800

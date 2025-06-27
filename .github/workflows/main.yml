@@ -6,18 +6,20 @@ on:
 
 jobs:
   setup-remote-access:
-    runs-on: windows-latest # Changed from macos-latest
+    runs-on: windows-latest
 
     steps:
     - name: Download RustDesk Portable
       run: |
-        # --- CRITICAL: VERIFY THIS URL AND FILENAME ON RUSTDESK'S GITHUB RELEASES PAGE ---
-        # Go to https://github.com/rustdesk/rustdesk/releases and find the latest stable release.
-        # Look for the Windows portable (zip) file and copy its direct download link.
-        # Example for version 1.2.3 (might be different for newer versions or specific builds):
-        $RUSTDESK_VERSION = "1.2.3" # Set your desired version
-        $DMG_FILENAME = "rustdesk-1.2.3-x86_64.zip" # <-- CHECK THIS FILENAME CAREFULLY!
-        $DOWNLOAD_URL = "https://github.com/rustdesk/rustdesk/releases/download/${RUSTDESK_VERSION}/${DMG_FILENAME}"
+        # --- IMPORTANT: VERIFY THIS URL AND FILENAME ON RUSTDESK'S GITHUB RELEASES PAGE ---
+        # Go to https://github.com/rustdesk/rustdesk/releases
+        # Find the LATEST stable release (e.g., v1.2.6 or newer).
+        # Under "Assets", look for the file named like "rustdesk-X.Y.Z-x86_64.zip".
+        # This is typically the portable version you want. Copy its direct download link.
+
+        $RUSTDESK_VERSION = "1.2.6" # <<< CHANGED TO A VERSION KNOWN TO HAVE THE PORTABLE ZIP
+        $DMG_FILENAME = "rustdesk-${RUSTDESK_VERSION}-x86_64.zip" # <<< VERIFIED FILENAME FOR 1.2.6
+        $DOWNLOAD_URL = "https://github.com/rustdesk/rustdesk/releases/download/v${RUSTDESK_VERSION}/${DMG_FILENAME}" # <<< NOTE 'v' prefix in URL
 
         $INSTALL_DIR = "${env:TEMP}\RustDesk" # Using TEMP directory for installation
 
@@ -31,63 +33,69 @@ jobs:
         Remove-Item "${env:TEMP}\${DMG_FILENAME}"
 
         echo "RustDesk extracted. Executable path: $INSTALL_DIR\rustdesk.exe"
-      shell: powershell # Specify PowerShell for this step
+      shell: powershell
 
     - name: Start RustDesk and Get Connection Info
       run: |
         $INSTALL_DIR = "${env:TEMP}\RustDesk"
         $RUSTDESK_EXE = "$INSTALL_DIR\rustdesk.exe"
-        $LOG_FILE = "$INSTALL_DIR\rustdesk_info.log" # A potential log file to capture output
+        $LOG_FILE = "$INSTALL_DIR\rustdesk_info.log"
 
         echo "Starting RustDesk..."
-        # Start RustDesk in the background, redirecting output if possible.
-        # RustDesk might directly print ID/password to stdout/stderr or a log file.
-        # The `--silent` or `--no-gui` flag might be useful if available for headless use.
-        # The following command starts the executable directly from the extracted folder.
+        # Start RustDesk in the background, attempting to log to a file.
+        # Note: RustDesk's CLI arguments might change, verify '--logfile' behavior if issues arise.
+        # We start it as a service to try and keep it running reliably.
         Start-Process -FilePath $RUSTDESK_EXE -ArgumentList "--service", "--enable-service", "--logfile", "$LOG_FILE" -NoNewWindow -PassThru | Out-Null
-        # Give RustDesk time to initialize and generate ID/password
-        Start-Sleep -Seconds 30
+        Start-Sleep -Seconds 30 # Give RustDesk time to initialize
 
         echo "Attempting to retrieve RustDesk ID and Password from log file or configuration..."
-        # This part is highly dependent on how RustDesk exposes its ID/password.
-        # On Windows, RustDesk often writes a log or config file in %APPDATA%\RustDesk or the install dir.
-        # We'll check the log file we tried to create.
+        # On Windows, RustDesk typically stores its config and logs in %APPDATA%\RustDesk
+        # It's more reliable to check the actual %APPDATA% path than the install dir for logs/config.
+        $APPDATA_RUSTDESK_PATH = "$env:APPDATA\RustDesk"
+        $RUSTDESK_LOG_DIR = "$APPDATA_RUSTDESK_PATH\log" # Common log directory
+        $RUSTDESK_CONFIG_FILE = "$APPDATA_RUSTDESK_PATH\config\RustDesk.toml" # Common config file
 
-        # ***IMPORTANT: The following commands are illustrative and might not work directly.***
-        # You will likely need to inspect the contents of $LOG_FILE or other common RustDesk locations
-        # (e.g., %APPDATA%\RustDesk\config\RustDesk.toml or a specific log file in %APPDATA%\RustDesk\log)
-        # after a manual run to understand where the ID/password is stored/logged.
+        echo "Checking RustDesk APPDATA path: $APPDATA_RUSTDESK_PATH"
+        if (Test-Path $APPDATA_RUSTDESK_PATH) {
+            echo "Listing files in $APPDATA_RUSTDESK_PATH:"
+            Get-ChildItem $APPDATA_RUSTDESK_PATH -Recurse | Select-Object FullName
 
-        # Example: Try to read from the log file (if RustDesk writes ID/Pass there)
-        if (Test-Path $LOG_FILE) {
-            $logContent = Get-Content $LOG_FILE -Raw
-            echo "--- Content of RustDesk log file ---"
-            echo $logContent
-            echo "------------------------------------"
+            # Try to find recent log file
+            $recentLogFile = Get-ChildItem $RUSTDESK_LOG_DIR -Filter "*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-            # Attempt to extract ID and Password using regex (adjust regex as needed)
-            $rustdeskId = [regex]::Match($logContent, 'ID: (\d+)').Groups[1].Value
-            $rustdeskPass = [regex]::Match($logContent, 'Password: (\w+)').Groups[1].Value
+            if ($recentLogFile) {
+                echo "--- Content of latest RustDesk log file ($($recentLogFile.FullName)) ---"
+                $logContent = Get-Content $recentLogFile.FullName -Raw
+                echo $logContent
+                echo "------------------------------------"
 
-            if (-not [string]::IsNullOrEmpty($rustdeskId)) {
-                echo "RustDesk ID: $rustdeskId"
-                echo "Please find the Password manually if not displayed above or in logs."
-                # Outputting password directly in logs is a security risk for public repos.
-                # Consider using GitHub Secrets if you need to store and retrieve it securely.
+                # Attempt to extract ID and Password using regex (adjust regex as needed)
+                # RustDesk ID is usually numerical, password alphanumeric.
+                $rustdeskId = [regex]::Match($logContent, 'ID: (\d+)').Groups[1].Value
+                $rustdeskPass = [regex]::Match($logContent, 'Password: (\w+)').Groups[1].Value # Might be generated only on first run
+
+                if (-not [string]::IsNullOrEmpty($rustdeskId)) {
+                    echo "RustDesk ID: $rustdeskId"
+                    # For security, avoid echoing the password directly in public logs.
+                    # If you need it for automated connection, consider GitHub Secrets.
+                    echo "RustDesk Password (check logs or retrieve manually): [Hidden for security, if applicable]"
+                } else {
+                    echo "Could not find RustDesk ID in log file. Manual retrieval is likely required."
+                }
             } else {
-                echo "Could not find RustDesk ID in log file. Manual retrieval is likely required."
+                echo "No recent log files found in $RUSTDESK_LOG_DIR. Manual retrieval of ID/Password is required."
             }
         } else {
-            echo "RustDesk log file not found at $LOG_FILE. Manual retrieval of ID/Password is required."
+            echo "RustDesk APPDATA directory not found. Manual retrieval of ID/Password is required."
         }
 
         echo "--- Manual Connection Details ---"
         echo "Connect using the RustDesk client on your local machine."
         echo "You will need the RustDesk ID and Password. Look for them in the RustDesk UI after it starts on the runner,"
-        echo "or within its configuration/log files, or use an SSH session to the runner to view them."
+        echo "or within its configuration/log files (typically in %APPDATA%\RustDesk), or use an SSH session to the runner to view them."
         echo "---------------------------------"
 
         # Keep alive for 30 minutes
         echo "Keeping runner alive for 30 minutes..."
         timeout /t 1800 /nobreak
-      shell: powershell # Specify PowerShell for this step
+      shell: powershell

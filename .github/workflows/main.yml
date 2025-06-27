@@ -11,17 +11,10 @@ jobs:
     steps:
     - name: Download RustDesk Portable Executable
       run: |
-        # --- IMPORTANT: VERIFY THIS URL AND FILENAME ---
-        # Go to https://github.com/rustdesk/rustdesk/releases
-        # Find the release for v1.4.0.
-        # Under "Assets", locate: rustdesk-1.4.0-x86_64.exe
-        # This is treated as a portable executable that runs directly and self-extracts.
-
-        $RUSTDESK_VERSION = "1.4.0" # Updated version
-        $EXE_FILENAME = "rustdesk-${RUSTDESK_VERSION}-x86_64.exe" # Portable EXE filename
+        $RUSTDESK_VERSION = "1.4.0"
+        $EXE_FILENAME = "rustdesk-${RUSTDESK_VERSION}-x86_64.exe"
         $DOWNLOAD_URL = "https://github.com/rustdesk/rustdesk/releases/download/${RUSTDESK_VERSION}/${EXE_FILENAME}"
-
-        $DOWNLOAD_PATH = "${env:TEMP}\${EXE_FILENAME}" # Path to download the portable EXE
+        $DOWNLOAD_PATH = "${env:TEMP}\${EXE_FILENAME}"
 
         echo "Downloading RustDesk portable executable from: ${DOWNLOAD_URL}"
         $MAX_RETRIES = 5
@@ -44,7 +37,7 @@ jobs:
                     Start-Sleep -Seconds $RETRY_DELAY
                 } else {
                     echo "Max retries reached. Exiting."
-                    exit 1 # Fail the step
+                    exit 1
                 }
             }
         }
@@ -53,14 +46,10 @@ jobs:
 
         # Run the portable EXE briefly to allow it to unpack/self-extract to AppData\Local
         echo "Running RustDesk briefly to allow self-extraction and setup..."
-        # Start-Process will run it. We don't need -Wait here if we stop it.
         Start-Process -FilePath "$DOWNLOAD_PATH" -NoNewWindow -PassThru | Out-Null
         Start-Sleep -Seconds 15 # Give it enough time to extract and potentially start its service
         
-        # Attempt to stop any running RustDesk processes started from the temp location
-        echo "Attempting to stop RustDesk process launched from temp location..."
-        Stop-Process -Name "rustdesk" -ErrorAction SilentlyContinue # SilentlyContinue prevents error if not found
-        Start-Sleep -Seconds 5 # Give it a moment to terminate
+        # REMOVED: Stop-Process as it causes NullReferenceException if process already exited
         echo "Initial RustDesk run complete. It should now be set up in AppData\Local."
       shell: powershell
 
@@ -73,52 +62,57 @@ jobs:
         if (-not (Test-Path $RUSTDESK_EXE)) {
             echo "Error: RustDesk executable not found at ${RUSTDESK_EXE} after self-extraction. Aborting."
             echo "Please ensure the initial run of the downloaded EXE successfully extracted it."
-            exit 1 # Fail if the executable isn't where it's expected
+            exit 1
         }
 
         echo "Starting RustDesk from its extracted location: ${RUSTDESK_EXE}"
         # Start RustDesk in the background as a service to ensure it runs headless.
-        # '--enable-service' and '--service' might manage a Windows service.
         Start-Process -FilePath $RUSTDESK_EXE -ArgumentList "--service", "--enable-service" -NoNewWindow -PassThru | Out-Null
         Start-Sleep -Seconds 30 # Give RustDesk time to initialize and generate ID/password
 
         echo "Attempting to retrieve RustDesk ID and Password from log file or configuration..."
         $APPDATA_RUSTDESK_PATH = "$env:APPDATA\RustDesk"
-        # CRITICAL FIX: Log files are in a 'service' sub-directory for 1.4.0
         $RUSTDESK_LOG_DIR = "$APPDATA_RUSTDESK_PATH\log\service" 
-        $RUSTDESK_CONFIG_FILE = "$APPDATA_RUSTDESK_PATH\config\RustDesk.toml" # Still relevant for config
+        
+        echo "Checking log files in: ${RUSTDESK_LOG_DIR}"
 
-        echo "Checking RustDesk APPDATA path: ${APPDATA_RUSTDESK_PATH}"
-        if (Test-Path $APPDATA_RUSTDESK_PATH) {
-            # Removed the problematic recursive Get-ChildItem for general listing
-            # Instead, directly target the expected log file path.
-            echo "Checking log files in: ${RUSTDESK_LOG_DIR}"
+        # NEW: Add a waiting loop to ensure the log file is found and written
+        $logFileFound = $false
+        $waitRetries = 12 # Check up to 12 times
+        $waitDelay = 5 # Wait 5 seconds between checks (total up to 60 seconds)
+        $recentLogFile = $null
 
-            # Try to find recent log file, typically named by date or "rustdesk_rCURRENT.log"
-            # Filter specifically for files starting with 'rustdesk_r' as seen in your output
+        for ($i = 0; $i -lt $waitRetries; $i++) {
+            # Try to find the log file
             $recentLogFile = Get-ChildItem $RUSTDESK_LOG_DIR -Filter "rustdesk_r*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($recentLogFile -ne $null -and (Get-Content $recentLogFile.FullName -Raw).Length -gt 0) { # Also check if file has content
+                echo "Log file found and has content after $($i * $waitDelay) seconds."
+                $logFileFound = $true
+                break
+            }
+            echo "Waiting for log file in ${RUSTDESK_LOG_DIR}... (Attempt $($i + 1))"
+            Start-Sleep -Seconds $waitDelay
+        }
 
-            if ($recentLogFile) {
-                echo "--- Content of latest RustDesk service log file ($($recentLogFile.FullName)) ---"
-                $logContent = Get-Content $recentLogFile.FullName -Raw
-                echo $logContent
-                echo "------------------------------------"
+        if ($logFileFound) {
+            echo "--- Content of latest RustDesk service log file ($($recentLogFile.FullName)) ---"
+            # Add a small delay before reading the content one last time to ensure full write
+            Start-Sleep -Seconds 2 
+            $logContent = Get-Content $recentLogFile.FullName -Raw
+            echo $logContent
+            echo "------------------------------------"
 
-                # Attempt to extract ID and Password using regex (adjust regex if needed)
-                $rustdeskId = [regex]::Match($logContent, 'ID: (\d+)').Groups[1].Value
-                $rustdeskPass = [regex]::Match($logContent, 'Password: (\w+)').Groups[1].Value
+            $rustdeskId = [regex]::Match($logContent, 'ID: (\d+)').Groups[1].Value
+            $rustdeskPass = [regex]::Match($logContent, 'Password: (\w+)').Groups[1].Value
 
-                if (-not [string]::IsNullOrEmpty($rustdeskId)) {
-                    echo "RustDesk ID: ${rustdeskId}"
-                    echo "RustDesk Password (check logs above or retrieve manually): ${rustdeskPass}" # Display for debug
-                } else {
-                    echo "Could not find RustDesk ID in log file. Manual retrieval is likely required."
-                }
+            if (-not [string]::IsNullOrEmpty($rustdeskId)) {
+                echo "RustDesk ID: ${rustdeskId}"
+                echo "RustDesk Password (check logs above or retrieve manually): ${rustdeskPass}"
             } else {
-                echo "No recent log files found in ${RUSTDESK_LOG_DIR}. Manual retrieval of ID/Password is required."
+                echo "Could not find RustDesk ID in log file after reading. Manual retrieval is likely required."
             }
         } else {
-            echo "RustDesk APPDATA directory not found. Manual retrieval of ID/Password is required."
+            echo "No recent log files found in ${RUSTDESK_LOG_DIR} after waiting. Manual retrieval of ID/Password is required."
         }
 
         echo "--- Manual Connection Details ---"

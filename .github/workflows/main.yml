@@ -11,14 +11,18 @@ jobs:
     steps:
     - name: Download RustDesk Portable
       run: |
-        # Define RustDesk version and architecture
-        $RUSTDESK_VERSION = "1.2.3" # Adjust if a newer version is desired
-        $DMG_FILENAME = "rustdesk-${RUSTDESK_VERSION}-windows-x86_64.zip" # Assuming x86_64 for most runners
+        # --- CRITICAL: VERIFY THIS URL AND FILENAME ON RUSTDESK'S GITHUB RELEASES PAGE ---
+        # Go to https://github.com/rustdesk/rustdesk/releases and find the latest stable release.
+        # Look for the Windows portable (zip) file and copy its direct download link.
+        # Example for version 1.2.3 (might be different for newer versions or specific builds):
+        $RUSTDESK_VERSION = "1.2.3" # Set your desired version
+        $DMG_FILENAME = "rustdesk-1.2.3-x86_64.zip" # <-- CHECK THIS FILENAME CAREFULLY!
         $DOWNLOAD_URL = "https://github.com/rustdesk/rustdesk/releases/download/${RUSTDESK_VERSION}/${DMG_FILENAME}"
+
         $INSTALL_DIR = "${env:TEMP}\RustDesk" # Using TEMP directory for installation
 
         echo "Downloading RustDesk from: $DOWNLOAD_URL"
-        Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "${env:TEMP}\${DMG_FILENAME}"
+        Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "${env:TEMP}\${DMG_FILENAME}" -UseBasicParsing
 
         echo "Extracting RustDesk to: $INSTALL_DIR"
         Expand-Archive -Path "${env:TEMP}\${DMG_FILENAME}" -DestinationPath $INSTALL_DIR
@@ -39,6 +43,7 @@ jobs:
         # Start RustDesk in the background, redirecting output if possible.
         # RustDesk might directly print ID/password to stdout/stderr or a log file.
         # The `--silent` or `--no-gui` flag might be useful if available for headless use.
+        # The following command starts the executable directly from the extracted folder.
         Start-Process -FilePath $RUSTDESK_EXE -ArgumentList "--service", "--enable-service", "--logfile", "$LOG_FILE" -NoNewWindow -PassThru | Out-Null
         # Give RustDesk time to initialize and generate ID/password
         Start-Sleep -Seconds 30

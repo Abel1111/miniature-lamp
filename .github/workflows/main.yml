@@ -20,7 +20,7 @@ jobs:
         
         # Set VNC password (change "yourpassword" to your desired password)
         mkdir -p ~/.vnc
-        echo "yourpassword" | vncpasswd -f > ~/.vnc/passwd
+        /opt/homebrew/bin/vncpasswd -f > ~/.vnc/passwd <<< "yourpassword"
         chmod 600 ~/.vnc/passwd
         
         # Start VNC server on display :1
@@ -33,6 +33,10 @@ jobs:
         
         # Keep the runner alive for 30 minutes (adjust as needed)
         echo "This runner will self-destruct in 30 minutes..."
+        echo "To connect from Windows:"
+        echo "1. Download TigerVNC Viewer from https://tigervnc.org"
+        echo "2. Connect to $IP_ADDRESS:5901"
+        echo "3. Use password: yourpassword"
         sleep 1800
         
     - name: Notify completion

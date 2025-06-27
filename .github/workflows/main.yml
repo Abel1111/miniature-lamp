@@ -1,66 +1,88 @@
 ---
-name: macOS RustDesk Remote Access
+name: Windows RustDesk Remote Access
 
 on:
   workflow_dispatch:
 
 jobs:
   setup-remote-access:
-    runs-on: macos-latest
+    runs-on: windows-latest # Changed from macos-latest
+
     steps:
-    - name: Download and Install RustDesk
+    - name: Download RustDesk Portable
       run: |
-        # Download the latest RustDesk macOS client (adjust URL if needed for a specific version)
-        # It's good practice to make the version dynamic or match the download to the expected mount name
-        RUSTDESK_VERSION="1.2.3" # Define the version here
-        RUSTDESK_ARCH="aarch64" # Or x86_64 for Intel Macs
-        DMG_FILENAME="rustdesk-${RUSTDESK_VERSION}-${RUSTDESK_ARCH}.dmg"
-        MOUNT_POINT="/Volumes/rustdesk-${RUSTDESK_VERSION}" # This is the crucial change
+        # Define RustDesk version and architecture
+        $RUSTDESK_VERSION = "1.2.3" # Adjust if a newer version is desired
+        $DMG_FILENAME = "rustdesk-${RUSTDESK_VERSION}-windows-x86_64.zip" # Assuming x86_64 for most runners
+        $DOWNLOAD_URL = "https://github.com/rustdesk/rustdesk/releases/download/${RUSTDESK_VERSION}/${DMG_FILENAME}"
+        $INSTALL_DIR = "${env:TEMP}\RustDesk" # Using TEMP directory for installation
 
-        curl -L "https://github.com/rustdesk/rustdesk/releases/download/${RUSTDESK_VERSION}/${DMG_FILENAME}" -o "${DMG_FILENAME}"
+        echo "Downloading RustDesk from: $DOWNLOAD_URL"
+        Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "${env:TEMP}\${DMG_FILENAME}"
 
-        sudo hdiutil attach "${DMG_FILENAME}"
-        # Use the correct mount point for copying
-        sudo cp -R "${MOUNT_POINT}/RustDesk.app" /Applications/
-        sudo hdiutil detach "${MOUNT_POINT}"
+        echo "Extracting RustDesk to: $INSTALL_DIR"
+        Expand-Archive -Path "${env:TEMP}\${DMG_FILENAME}" -DestinationPath $INSTALL_DIR
 
-        # Give RustDesk necessary permissions (might require manual approval on first run)
-        # These commands attempt to pre-approve, but user interaction might still be needed
-        sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" "INSERT or REPLACE INTO access (service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity) VALUES ('kTCCServiceScreenCapture', 'com.rustdesk.rustdesk', 0, 1, 0, NULL, 0, 'kTCCServiceScreenCapture', 0, NULL);"
-        sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" "INSERT or REPLACE INTO access (service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity) VALUES ('kTCCServiceAccessibility', 'com.rustdesk.rustdesk', 0, 1, 0, NULL, 0, 'kTCCServiceAccessibility', 0, NULL);"
+        # Clean up the downloaded zip file
+        Remove-Item "${env:TEMP}\${DMG_FILENAME}"
+
+        echo "RustDesk extracted. Executable path: $INSTALL_DIR\rustdesk.exe"
+      shell: powershell # Specify PowerShell for this step
 
     - name: Start RustDesk and Get Connection Info
       run: |
-        # Start RustDesk application
-        open /Applications/RustDesk.app --args --silent &
+        $INSTALL_DIR = "${env:TEMP}\RustDesk"
+        $RUSTDESK_EXE = "$INSTALL_DIR\rustdesk.exe"
+        $LOG_FILE = "$INSTALL_DIR\rustdesk_info.log" # A potential log file to capture output
 
-        # Wait for RustDesk to generate ID and password
-        echo "Waiting for RustDesk to start and generate connection info..."
-        sleep 30 # Give RustDesk time to initialize
+        echo "Starting RustDesk..."
+        # Start RustDesk in the background, redirecting output if possible.
+        # RustDesk might directly print ID/password to stdout/stderr or a log file.
+        # The `--silent` or `--no-gui` flag might be useful if available for headless use.
+        Start-Process -FilePath $RUSTDESK_EXE -ArgumentList "--service", "--enable-service", "--logfile", "$LOG_FILE" -NoNewWindow -PassThru | Out-Null
+        # Give RustDesk time to initialize and generate ID/password
+        Start-Sleep -Seconds 30
 
-        # Extract RustDesk ID and Password
-        # This part is highly dependent on how RustDesk stores/exposes its ID/password.
-        # This is a placeholder and might require adjustment based on RustDesk's behavior on a fresh install.
-        # You might need to look for logs, a specific file, or a command-line utility RustDesk offers.
+        echo "Attempting to retrieve RustDesk ID and Password from log file or configuration..."
+        # This part is highly dependent on how RustDesk exposes its ID/password.
+        # On Windows, RustDesk often writes a log or config file in %APPDATA%\RustDesk or the install dir.
+        # We'll check the log file we tried to create.
 
         # ***IMPORTANT: The following commands are illustrative and might not work directly.***
-        # RustDesk typically shows the ID and password in its UI. Automating extraction
-        # on a fresh install in a CI environment can be challenging.
-        # You might need to explore RustDesk's CLI options, if any, or look for files
-        # where it stores this information.
-        # As a workaround, you might have to manually connect once to a runner
-        # to get its ID and password, or set up a fixed ID/password if RustDesk supports it.
+        # You will likely need to inspect the contents of $LOG_FILE or other common RustDesk locations
+        # (e.g., %APPDATA%\RustDesk\config\RustDesk.toml or a specific log file in %APPDATA%\RustDesk\log)
+        # after a manual run to understand where the ID/password is stored/logged.
 
-        # Placeholder: If RustDesk had a CLI to get info
-        # RUSTDESK_INFO=$(/Applications/RustDesk.app/Contents/MacOS/RustDesk --get-info)
-        # RUSTDESK_ID=$(echo "$RUSTDESK_INFO" | grep "ID:" | awk '{print $2}')
-        # RUSTDESK_PASS=$(echo "$RUSTDESK_INFO" | grep "Password:" | awk '{print $2}')
+        # Example: Try to read from the log file (if RustDesk writes ID/Pass there)
+        if (Test-Path $LOG_FILE) {
+            $logContent = Get-Content $LOG_FILE -Raw
+            echo "--- Content of RustDesk log file ---"
+            echo $logContent
+            echo "------------------------------------"
 
-        echo "--- RustDesk Manual Connection Details ---"
-        echo "Please launch the workflow and observe the runner logs for RustDesk's ID and Password."
-        echo "You may need to connect to this runner via SSH first to manually retrieve them if not exposed in logs."
-        echo "You can often find them in the RustDesk UI after it starts."
-        echo "----------------------------------------"
+            # Attempt to extract ID and Password using regex (adjust regex as needed)
+            $rustdeskId = [regex]::Match($logContent, 'ID: (\d+)').Groups[1].Value
+            $rustdeskPass = [regex]::Match($logContent, 'Password: (\w+)').Groups[1].Value
+
+            if (-not [string]::IsNullOrEmpty($rustdeskId)) {
+                echo "RustDesk ID: $rustdeskId"
+                echo "Please find the Password manually if not displayed above or in logs."
+                # Outputting password directly in logs is a security risk for public repos.
+                # Consider using GitHub Secrets if you need to store and retrieve it securely.
+            } else {
+                echo "Could not find RustDesk ID in log file. Manual retrieval is likely required."
+            }
+        } else {
+            echo "RustDesk log file not found at $LOG_FILE. Manual retrieval of ID/Password is required."
+        }
+
+        echo "--- Manual Connection Details ---"
+        echo "Connect using the RustDesk client on your local machine."
+        echo "You will need the RustDesk ID and Password. Look for them in the RustDesk UI after it starts on the runner,"
+        echo "or within its configuration/log files, or use an SSH session to the runner to view them."
+        echo "---------------------------------"
 
         # Keep alive for 30 minutes
-        sleep 1800
+        echo "Keeping runner alive for 30 minutes..."
+        timeout /t 1800 /nobreak
+      shell: powershell # Specify PowerShell for this step

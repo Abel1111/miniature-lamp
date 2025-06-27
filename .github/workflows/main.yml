@@ -7,38 +7,35 @@ jobs:
   setup-remote-access:
     runs-on: macos-latest
     steps:
-    - name: Install VNC Server
+    - name: Enable Screen Sharing
       run: |
-        # Install Homebrew if not already installed
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-        eval "$(/opt/homebrew/bin/brew shellenv)"
+        # Enable Screen Sharing (VNC)
+        sudo /usr/sbin/systemsetup -setremotelogin on
+        sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
+        sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
         
-        # Install TigerVNC server and viewer
-        brew install tiger-vnc
-        brew install --cask tigervnc-viewer
-        
-        # Set VNC password (change "yourpassword" to your desired password)
-        mkdir -p ~/.vnc
-        /opt/homebrew/bin/vncpasswd -f > ~/.vnc/passwd <<< "yourpassword"
-        chmod 600 ~/.vnc/passwd
-        
-        # Start VNC server on display :1
-        /opt/homebrew/bin/vncserver :1 -geometry 1280x800 -depth 24
+        # Create a temporary user for remote access
+        TEMP_USER="githubrunner"
+        TEMP_PASS=$(openssl rand -base64 12)
+        sudo sysadminctl -addUser $TEMP_USER -password $TEMP_PASS -admin
         
         # Get IP address
         IP_ADDRESS=$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')
-        echo "VNC Server started on: $IP_ADDRESS:5901"
-        echo "Password: yourpassword"
         
-        # Keep the runner alive for 30 minutes (adjust as needed)
-        echo "This runner will self-destruct in 30 minutes..."
+        echo "Remote access enabled on: $IP_ADDRESS"
+        echo "Username: $TEMP_USER"
+        echo "Password: $TEMP_PASS"
+        echo ""
+        echo "To connect from macOS:"
+        echo "1. Open Finder"
+        echo "2. Press Command+K"
+        echo "3. Enter: vnc://$IP_ADDRESS"
+        echo "4. Use the credentials above"
+        echo ""
         echo "To connect from Windows:"
         echo "1. Download TigerVNC Viewer from https://tigervnc.org"
-        echo "2. Connect to $IP_ADDRESS:5901"
-        echo "3. Use password: yourpassword"
-        sleep 1800
+        echo "2. Connect to $IP_ADDRESS"
+        echo "3. Use the credentials above"
         
-    - name: Notify completion
-      run: |
-        echo "Remote access setup complete. Connect using a VNC client to the IP shown above."
+        # Keep alive for 30 minutes
+        sleep 1800

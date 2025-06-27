@@ -1,22 +1,38 @@
-name: Windows - Iperius Remote
+name: macOS Remote Access Setup
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Start Building...
-    runs-on: windows-latest
-    timeout-minutes: 9999
-    
+  setup-remote-access:
+    runs-on: macos-latest
     steps:
-      - name: Downloading & Installing Essentials
-        run: |
-          Invoke-WebRequest -Uri "https://gitlab.com/chamod12/iperius_win-10_github_rdp/-/raw/main/down.bat" -OutFile "Downloads.bat"
-          cmd /c Downloads.bat
-
-      - name: Connect to LiteManager
-        run: cmd /c show.bat
-
-      - name: Time Counter
-        run: cmd /c loop.bat
+    - name: Install VNC Server
+      run: |
+        # Install Homebrew if not already installed
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+        
+        # Install VNC server (we're using TigerVNC in this example)
+        brew install tigervnc-server
+        
+        # Set VNC password (change "yourpassword" to your desired password)
+        mkdir -p ~/.vnc
+        echo "yourpassword" | vncpasswd -f > ~/.vnc/passwd
+        chmod 600 ~/.vnc/passwd
+        
+        # Start VNC server on display :1
+        /opt/homebrew/opt/tigervnc-server/bin/vncserver :1 -geometry 1280x800 -depth 24
+        
+        # Get IP address
+        IP_ADDRESS=$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')
+        echo "VNC Server started on: $IP_ADDRESS:5901"
+        
+        # Keep the runner alive for 30 minutes (adjust as needed)
+        echo "This runner will self-destruct in 30 minutes..."
+        sleep 1800
+        
+    - name: Notify completion
+      run: |
+        echo "Remote access setup complete. Connect using a VNC client to the IP shown above."

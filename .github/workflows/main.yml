@@ -24,7 +24,6 @@ jobs:
 
         $DOWNLOAD_PATH = "${env:TEMP}\${EXE_FILENAME}" # Path to download the portable EXE
 
-        # Fixed: Using ${DOWNLOAD_URL} for clear variable demarcation
         echo "Downloading RustDesk portable executable from: ${DOWNLOAD_URL}"
         # Using curl.exe with retries for robust download
         $MAX_RETRIES = 5
@@ -32,9 +31,9 @@ jobs:
 
         for ($i = 0; $i -lt $MAX_RETRIES; $i++) {
             try {
-                # Fixed: Using ${DOWNLOAD_URL} here too
-                echo "Attempt $($i + 1) of $MAX_RETRIES: Downloading ${DOWNLOAD_URL}"
-                curl.exe -L -o "$DOWNLOAD_PATH" "${DOWNLOAD_URL}" # Also safe to brace here
+                # Fixed: Using string concatenation for clearer parsing
+                echo ("Attempt $($i + 1) of ${MAX_RETRIES}: Downloading ${DOWNLOAD_URL}")
+                curl.exe -L -o "$DOWNLOAD_PATH" "${DOWNLOAD_URL}"
                 if ($LASTEXITCODE -eq 0) {
                     echo "Download successful."
                     break
@@ -62,6 +61,7 @@ jobs:
         # Ensure the RUSTDESK_VERSION variable is available for constructing the EXE path
         $RUSTDESK_VERSION = "1.4.0" # Redefine for this step's scope
         $RUSTDESK_EXE = "${env:TEMP}\rustdesk-${RUSTDESK_VERSION}-x86_64.exe"
+
 
         if (-not (Test-Path $RUSTDESK_EXE)) {
             echo "Error: RustDesk executable not found at ${RUSTDESK_EXE}. Aborting."

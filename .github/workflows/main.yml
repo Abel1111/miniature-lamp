@@ -24,15 +24,17 @@ jobs:
 
         $DOWNLOAD_PATH = "${env:TEMP}\${EXE_FILENAME}" # Path to download the portable EXE
 
-        echo "Downloading RustDesk portable executable from: $DOWNLOAD_URL"
+        # Fixed: Using ${DOWNLOAD_URL} for clear variable demarcation
+        echo "Downloading RustDesk portable executable from: ${DOWNLOAD_URL}"
         # Using curl.exe with retries for robust download
         $MAX_RETRIES = 5
         $RETRY_DELAY = 10 # seconds
 
         for ($i = 0; $i -lt $MAX_RETRIES; $i++) {
             try {
-                echo "Attempt $($i + 1) of $MAX_RETRIES: Downloading $DOWNLOAD_URL"
-                curl.exe -L -o "$DOWNLOAD_PATH" "$DOWNLOAD_URL"
+                # Fixed: Using ${DOWNLOAD_URL} here too
+                echo "Attempt $($i + 1) of $MAX_RETRIES: Downloading ${DOWNLOAD_URL}"
+                curl.exe -L -o "$DOWNLOAD_PATH" "${DOWNLOAD_URL}" # Also safe to brace here
                 if ($LASTEXITCODE -eq 0) {
                     echo "Download successful."
                     break
@@ -51,28 +53,23 @@ jobs:
             }
         }
 
-        echo "RustDesk portable executable downloaded to: $DOWNLOAD_PATH"
+        echo "RustDesk portable executable downloaded to: ${DOWNLOAD_PATH}"
         # No extraction or installation needed, it runs directly.
       shell: powershell
 
     - name: Start RustDesk and Get Connection Info
       run: |
-        $RUSTDESK_EXE = "${env:TEMP}\rustdesk-${env:RUSTDESK_VERSION}-x86_64.exe" # Path to the downloaded portable EXE
-        # Ensure the RUSTDESK_VERSION variable is available from the previous step, or define it here if needed.
-        # For simplicity, let's redefine it to ensure it's available in this step's scope
-        $RUSTDESK_VERSION = "1.4.0"
+        # Ensure the RUSTDESK_VERSION variable is available for constructing the EXE path
+        $RUSTDESK_VERSION = "1.4.0" # Redefine for this step's scope
         $RUSTDESK_EXE = "${env:TEMP}\rustdesk-${RUSTDESK_VERSION}-x86_64.exe"
 
-
         if (-not (Test-Path $RUSTDESK_EXE)) {
-            echo "Error: RustDesk executable not found at $RUSTDESK_EXE. Aborting."
+            echo "Error: RustDesk executable not found at ${RUSTDESK_EXE}. Aborting."
             exit 1 # Fail if the executable isn't where it's expected
         }
 
         echo "Starting RustDesk..."
         # Start RustDesk in the background as a service to ensure it runs headless.
-        # The '--logfile' argument might direct logs to the current directory or APPDATA.
-        # RustDesk typically defaults to putting config/logs in %APPDATA%\RustDesk regardless.
         Start-Process -FilePath $RUSTDESK_EXE -ArgumentList "--service", "--enable-service" -NoNewWindow -PassThru | Out-Null
         Start-Sleep -Seconds 30 # Give RustDesk time to initialize and generate ID/password
 
@@ -81,9 +78,9 @@ jobs:
         $RUSTDESK_LOG_DIR = "$APPDATA_RUSTDESK_PATH\log"
         $RUSTDESK_CONFIG_FILE = "$APPDATA_RUSTDESK_PATH\config\RustDesk.toml"
 
-        echo "Checking RustDesk APPDATA path: $APPDATA_RUSTDESK_PATH"
+        echo "Checking RustDesk APPDATA path: ${APPDATA_RUSTDESK_PATH}"
         if (Test-Path $APPDATA_RUSTDESK_PATH) {
-            echo "Listing files in $APPDATA_RUSTDESK_PATH:"
+            echo "Listing files in ${APPDATA_RUSTDESK_PATH}:"
             Get-ChildItem $APPDATA_RUSTDESK_PATH -Recurse | Select-Object FullName
 
             $recentLogFile = Get-ChildItem $RUSTDESK_LOG_DIR -Filter "*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -98,13 +95,13 @@ jobs:
                 $rustdeskPass = [regex]::Match($logContent, 'Password: (\w+)').Groups[1].Value
 
                 if (-not [string]::IsNullOrEmpty($rustdeskId)) {
-                    echo "RustDesk ID: $rustdeskId"
-                    echo "RustDesk Password (check logs above or retrieve manually): $rustdeskPass" # Display for debug
+                    echo "RustDesk ID: ${rustdeskId}"
+                    echo "RustDesk Password (check logs above or retrieve manually): ${rustdeskPass}" # Display for debug
                 } else {
                     echo "Could not find RustDesk ID in log file. Manual retrieval is likely required."
                 }
             } else {
-                echo "No recent log files found in $RUSTDESK_LOG_DIR. Manual retrieval of ID/Password is required."
+                echo "No recent log files found in ${RUSTDESK_LOG_DIR}. Manual retrieval of ID/Password is required."
             }
         } else {
             echo "RustDesk APPDATA directory not found. Manual retrieval of ID/Password is required."

@@ -102,7 +102,7 @@ jobs:
           
           # Use GITHUB_STEP_SUMMARY for better visibility in GitHub UI
           # Using a heredoc for multiline output is more robust for YAML parsing
-          cat << 'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          cat << EOF | tee -a "$GITHUB_STEP_SUMMARY"
           To connect using RustDesk:
           1. Download the RustDesk client from https://rustdesk.com/download.html
           2. Open the RustDesk client.

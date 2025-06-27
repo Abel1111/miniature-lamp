@@ -20,6 +20,7 @@ jobs:
           # Download the RustDesk macOS Intel DMG. Adjust URL if M1/M2/M3 is needed or a specific version.
           # For Apple Silicon (ARM), you might need 'rustdesk-1.2.3-aarch64.dmg' or similar.
           # You can find the latest releases here: https://github.com/rustdesk/rustdesk/releases
+          # Using version 1.2.3 as an example, adjust as needed.
           curl -L "https://github.com/rustdesk/rustdesk/releases/download/1.2.3/rustdesk-1.2.3-x86_64.dmg" -o rustdesk.dmg
 
       - name: Mount and Install RustDesk
@@ -76,11 +77,6 @@ jobs:
           done
 
           RUSTDESK_ID=$(grep 'client_id = "' "$RUSTDESK_CONFIG_PATH" | cut -d'"' -f2)
-          # The password is often dynamic or set manually. For automated setup,
-          # RustDesk creates a 'permanent_password' in the config.
-          # Or you can set one with --password option when launching if supported.
-          # As of many RustDesk versions, the initial password might be generated or empty.
-          # We'll look for `permanent_password` in the TOML.
           RUSTDESK_PASSWORD=$(grep 'permanent_password = "' "$RUSTDESK_CONFIG_PATH" | cut -d'"' -f2)
 
           if [ -z "$RUSTDESK_ID" ]; then
@@ -97,9 +93,12 @@ jobs:
           
           echo "RustDesk ID: $RUSTDESK_ID"
           echo "RustDesk Password: $RUSTDESK_PASSWORD"
-          echo "::set-output name=rustdesk_id::$RUSTDESK_ID"
-          echo "::set-output name=rustdesk_password::$RUSTDESK_PASSWORD"
           
+          # Use GITHUB_OUTPUT for setting step outputs (modern approach)
+          echo "rustdesk_id=$RUSTDESK_ID" >> "$GITHUB_OUTPUT"
+          echo "rustdesk_password=$RUSTDESK_PASSWORD" >> "$GITHUB_OUTPUT"
+          
+          # Use GITHUB_STEP_SUMMARY for better visibility in GitHub UI
           echo "
           To connect using RustDesk:
           1. Download the RustDesk client from https://rustdesk.com/download.html
@@ -107,7 +106,7 @@ jobs:
           3. Enter the ID: $RUSTDESK_ID
           4. Enter the Password: $RUSTDESK_PASSWORD
           5. Click 'Connect'.
-          " | tee -a $GITHUB_STEP_SUMMARY # Use GITHUB_STEP_SUMMARY for better visibility in GitHub UI
+          " | tee -a "$GITHUB_STEP_SUMMARY" # Corrected: tee should be inside the run block and arguments quoted
 
       - name: Keep Alive
         run: |

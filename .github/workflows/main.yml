@@ -49,14 +49,11 @@ jobs:
         Start-Process -FilePath "$DOWNLOAD_PATH" -NoNewWindow -PassThru | Out-Null
         Start-Sleep -Seconds 15 # Give it enough time to extract and potentially start its service
         
-        # REMOVED: Stop-Process as it causes NullReferenceException if process already exited
         echo "Initial RustDesk run complete. It should now be set up in AppData\Local."
       shell: powershell
 
     - name: Start RustDesk and Get Connection Info
       run: |
-        # RustDesk (v1.4.0 portable) self-extracts to AppData\Local when first run.
-        # We need to target this *actual* persistent executable location.
         $RUSTDESK_EXE = "${env:LOCALAPPDATA}\RustDesk\rustdesk.exe"
 
         if (-not (Test-Path $RUSTDESK_EXE)) {
@@ -65,8 +62,29 @@ jobs:
             exit 1
         }
 
-        echo "Starting RustDesk from its extracted location: ${RUSTDESK_EXE}"
-        # Start RustDesk in the background as a service to ensure it runs headless.
+        # --- NEW: Robust Service Management ---
+        $serviceName = "RustDesk" # Standard service name for RustDesk
+
+        # Check if the RustDesk service exists
+        if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+            echo "RustDesk service already exists. Attempting to stop and delete it for a clean start."
+            try {
+                Stop-Service -Name $serviceName -Force -ErrorAction Stop # Force stop
+                Remove-Service -Name $serviceName -ErrorAction Stop      # Delete the service
+                echo "Existing RustDesk service stopped and deleted successfully."
+                Start-Sleep -Seconds 5 # Give system time to clean up
+            } catch {
+                echo "Warning: Could not stop/delete existing RustDesk service. This might cause issues: $_"
+                # Continue, but note that this could be a persistent problem if it fails here.
+            }
+        } else {
+            echo "No existing RustDesk service found. Proceeding with fresh start."
+        }
+        # --- END NEW: Robust Service Management ---
+
+        echo "Starting RustDesk from its extracted location: ${RUSTDESK_EXE} with service flags."
+        # Start RustDesk in the background as a service.
+        # `--service` and `--enable-service` are used to run it headless and potentially register its service.
         Start-Process -FilePath $RUSTDESK_EXE -ArgumentList "--service", "--enable-service" -NoNewWindow -PassThru | Out-Null
         Start-Sleep -Seconds 30 # Give RustDesk time to initialize and generate ID/password
 
@@ -76,16 +94,15 @@ jobs:
         
         echo "Checking log files in: ${RUSTDESK_LOG_DIR}"
 
-        # NEW: Add a waiting loop to ensure the log file is found and written
         $logFileFound = $false
         $waitRetries = 12 # Check up to 12 times
         $waitDelay = 5 # Wait 5 seconds between checks (total up to 60 seconds)
         $recentLogFile = $null
 
         for ($i = 0; $i -lt $waitRetries; $i++) {
-            # Try to find the log file
             $recentLogFile = Get-ChildItem $RUSTDESK_LOG_DIR -Filter "rustdesk_r*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($recentLogFile -ne $null -and (Get-Content $recentLogFile.FullName -Raw).Length -gt 0) { # Also check if file has content
+            # Check if file exists AND has content
+            if ($recentLogFile -ne $null -and (Test-Path $recentLogFile.FullName) -and ( (Get-Item $recentLogFile.FullName).Length -gt 0) ) {
                 echo "Log file found and has content after $($i * $waitDelay) seconds."
                 $logFileFound = $true
                 break
@@ -96,11 +113,17 @@ jobs:
 
         if ($logFileFound) {
             echo "--- Content of latest RustDesk service log file ($($recentLogFile.FullName)) ---"
-            # Add a small delay before reading the content one last time to ensure full write
-            Start-Sleep -Seconds 2 
+            Start-Sleep -Seconds 2 # Give it a moment to ensure it's fully written before reading
             $logContent = Get-Content $recentLogFile.FullName -Raw
             echo $logContent
             echo "------------------------------------"
+
+            # Check for the service failure message
+            if ($logContent -like "*start_service failed*") {
+                echo "ERROR: RustDesk service failed to start. This is preventing ID/password generation."
+                echo "This might be due to permissions or environment restrictions on the GitHub Actions runner."
+                exit 1 # Fail here if service failed
+            }
 
             $rustdeskId = [regex]::Match($logContent, 'ID: (\d+)').Groups[1].Value
             $rustdeskPass = [regex]::Match($logContent, 'Password: (\w+)').Groups[1].Value
@@ -110,6 +133,7 @@ jobs:
                 echo "RustDesk Password (check logs above or retrieve manually): ${rustdeskPass}"
             } else {
                 echo "Could not find RustDesk ID in log file after reading. Manual retrieval is likely required."
+                echo "This could be because the service started but didn't output the ID/password to logs immediately."
             }
         } else {
             echo "No recent log files found in ${RUSTDESK_LOG_DIR} after waiting. Manual retrieval of ID/Password is required."
@@ -122,5 +146,5 @@ jobs:
         echo "---------------------------------"
 
         echo "Keeping runner alive for 30 minutes..."
-        timeout /t 1800 /nobreak
+        Start-Sleep -Seconds 1800 # Replaced 'timeout' with 'Start-Sleep'
       shell: powershell

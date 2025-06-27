@@ -14,8 +14,9 @@ jobs:
         echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
         eval "$(/opt/homebrew/bin/brew shellenv)"
         
-        # Install VNC server (we're using TigerVNC in this example)
-        brew install tigervnc-server
+        # Install TigerVNC server and viewer
+        brew install tiger-vnc
+        brew install --cask tigervnc-viewer
         
         # Set VNC password (change "yourpassword" to your desired password)
         mkdir -p ~/.vnc
@@ -23,11 +24,12 @@ jobs:
         chmod 600 ~/.vnc/passwd
         
         # Start VNC server on display :1
-        /opt/homebrew/opt/tigervnc-server/bin/vncserver :1 -geometry 1280x800 -depth 24
+        /opt/homebrew/bin/vncserver :1 -geometry 1280x800 -depth 24
         
         # Get IP address
         IP_ADDRESS=$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')
         echo "VNC Server started on: $IP_ADDRESS:5901"
+        echo "Password: yourpassword"
         
         # Keep the runner alive for 30 minutes (adjust as needed)
         echo "This runner will self-destruct in 30 minutes..."

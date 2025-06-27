@@ -1,4 +1,4 @@
-name: macOS Remote Access Setup
+name: macOS RustDesk Remote Access
 
 on:
   workflow_dispatch:
@@ -7,35 +7,123 @@ jobs:
   setup-remote-access:
     runs-on: macos-latest
     steps:
-    - name: Enable Screen Sharing
-      run: |
-        # Enable Screen Sharing (VNC)
-        sudo /usr/sbin/systemsetup -setremotelogin on
-        sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
-        sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-        
-        # Create a temporary user for remote access
-        TEMP_USER="githubrunner"
-        TEMP_PASS=$(openssl rand -base64 12)
-        sudo sysadminctl -addUser $TEMP_USER -password $TEMP_PASS -admin
-        
-        # Get IP address
-        IP_ADDRESS=$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')
-        
-        echo "Remote access enabled on: $IP_ADDRESS"
-        echo "Username: $TEMP_USER"
-        echo "Password: $TEMP_PASS"
-        echo ""
-        echo "To connect from macOS:"
-        echo "1. Open Finder"
-        echo "2. Press Command+K"
-        echo "3. Enter: vnc://$IP_ADDRESS"
-        echo "4. Use the credentials above"
-        echo ""
-        echo "To connect from Windows:"
-        echo "1. Download TigerVNC Viewer from https://tigervnc.org"
-        echo "2. Connect to $IP_ADDRESS"
-        echo "3. Use the credentials above"
-        
-        # Keep alive for 30 minutes
-        sleep 1800
+      - name: Disable Screen Sharing (VNC) - Optional but Recommended
+        run: |
+          # It's good practice to disable VNC if you're not using it,
+          # especially if it was previously enabled.
+          sudo /usr/sbin/systemsetup -setremotelogin off
+          sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool true
+          sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true # '|| true' to prevent error if already unloaded
+
+      - name: Download RustDesk
+        run: |
+          # Download the RustDesk macOS Intel DMG. Adjust URL if M1/M2/M3 is needed or a specific version.
+          # For Apple Silicon (ARM), you might need 'rustdesk-1.2.3-aarch64.dmg' or similar.
+          # You can find the latest releases here: https://github.com/rustdesk/rustdesk/releases
+          curl -L "https://github.com/rustdesk/rustdesk/releases/download/1.2.3/rustdesk-1.2.3-x86_64.dmg" -o rustdesk.dmg
+
+      - name: Mount and Install RustDesk
+        run: |
+          # Mount the DMG
+          hdiutil attach rustdesk.dmg -mountpoint /Volumes/RustDesk
+
+          # Copy RustDesk to Applications
+          sudo cp -R /Volumes/RustDesk/RustDesk.app /Applications/
+
+          # Unmount the DMG
+          hdiutil detach /Volumes/RustDesk
+
+          # Grant accessibility permissions (often required for remote control)
+          # This might require user interaction on a regular desktop, but in a CI runner,
+          # it might work differently or require a different approach for full automation.
+          # For a GitHub Actions runner, this might not be strictly necessary for basic function,
+          # but is good practice. Full automation of accessibility permissions on macOS CI is complex.
+          # You might need to rely on the user running the workflow to grant these manually
+          # if they were to interact with the runner directly.
+          # For now, we'll try to enable it, but be aware of limitations in headless environments.
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" "INSERT or REPLACE INTO access VALUES('kTCCServiceAccessibility','com.rustdesk.rustdesk',0,1,1,NULL,NULL,NULL,'UNUSED',NULL,0,16777215,NULL,NULL,NULL);" || true
+
+      - name: Start RustDesk and Get Credentials
+        id: rustdesk_info
+        run: |
+          # Launch RustDesk in the background. It might take a moment to generate ID/password.
+          # Using 'open' command which is the standard way to launch apps on macOS.
+          # We use 'nohup' and '&' to keep it running in the background.
+          nohup open -a /Applications/RustDesk.app --args --no-ui &
+          
+          echo "Waiting for RustDesk to start and generate credentials..."
+          sleep 30 # Give RustDesk some time to generate ID and password
+
+          # Extract RustDesk ID and Password from logs or configuration.
+          # RustDesk stores its configuration in ~/Library/Application Support/RustDesk/config/RustDesk.toml
+          # The ID and password are usually found there after it runs for the first time.
+
+          RUSTDESK_CONFIG_PATH="$HOME/Library/Application Support/RustDesk/config/RustDesk.toml"
+
+          # Loop to wait for the config file to exist and have content
+          for i in {1..10}; do
+            if [ -f "$RUSTDESK_CONFIG_PATH" ] && [ -s "$RUSTDESK_CONFIG_PATH" ]; then
+              echo "RustDesk config file found."
+              break
+            else
+              echo "Waiting for RustDesk config file to be created... ($i/10)"
+              sleep 5
+            fi
+            if [ "$i" -eq 10 ]; then
+              echo "RustDesk config file not found or empty after multiple attempts. Exiting."
+              exit 1
+            fi
+          done
+
+          RUSTDESK_ID=$(grep 'client_id = "' "$RUSTDESK_CONFIG_PATH" | cut -d'"' -f2)
+          # The password is often dynamic or set manually. For automated setup,
+          # RustDesk creates a 'permanent_password' in the config.
+          # Or you can set one with --password option when launching if supported.
+          # As of many RustDesk versions, the initial password might be generated or empty.
+          # We'll look for `permanent_password` in the TOML.
+          RUSTDESK_PASSWORD=$(grep 'permanent_password = "' "$RUSTDESK_CONFIG_PATH" | cut -d'"' -f2)
+
+          if [ -z "$RUSTDESK_ID" ]; then
+            echo "Error: Could not retrieve RustDesk ID."
+            exit 1
+          fi
+
+          if [ -z "$RUSTDESK_PASSWORD" ]; then
+            echo "Warning: Could not retrieve permanent RustDesk password from config. "
+            echo "You might need to set one manually in the RustDesk client or check logs for a temporary one."
+            # Fallback to a placeholder if no password found
+            RUSTDESK_PASSWORD="Please_Check_RustDesk_Client_For_Password"
+          fi
+          
+          echo "RustDesk ID: $RUSTDESK_ID"
+          echo "RustDesk Password: $RUSTDESK_PASSWORD"
+          echo "::set-output name=rustdesk_id::$RUSTDESK_ID"
+          echo "::set-output name=rustdesk_password::$RUSTDESK_PASSWORD"
+          
+          echo "
+          To connect using RustDesk:
+          1. Download the RustDesk client from https://rustdesk.com/download.html
+          2. Open the RustDesk client.
+          3. Enter the ID: $RUSTDESK_ID
+          4. Enter the Password: $RUSTDESK_PASSWORD
+          5. Click 'Connect'.
+          " | tee -a $GITHUB_STEP_SUMMARY # Use GITHUB_STEP_SUMMARY for better visibility in GitHub UI
+
+      - name: Keep Alive
+        run: |
+          echo "RustDesk is running. Keeping the job alive for 30 minutes for remote access."
+          sleep 1800 # Keep the job running for 30 minutes to allow remote access
+
+      - name: Cleanup (Optional: If you want to stop RustDesk and remove user after access)
+        if: always() # Always run this step, even if previous steps fail
+        run: |
+          echo "Stopping RustDesk..."
+          # Find and kill RustDesk processes
+          pkill -f RustDesk || true
+          
+          # Optional: Remove the temporary RustDesk user if you created one.
+          # Note: The original script created a VNC user. RustDesk uses its own internal system.
+          # If you want to clean up any temporary user created for VNC, add it here.
+          # sudo sysadminctl -deleteUser githubrunner -secure || true # Uncomment if you created a user specifically for VNC and want to remove it.
+          
+          echo "RustDesk stopped and cleanup complete (if configured)."

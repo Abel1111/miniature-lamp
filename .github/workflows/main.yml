@@ -1,150 +1,114 @@
----
-name: Windows RustDesk Remote Access (Portable EXE)
+name: Windows GetScreen.me Remote Access (Headless - No GUI)
 
 on:
   workflow_dispatch:
 
 jobs:
   setup-remote-access:
-    runs-on: windows-latest
+    runs-on: windows-latest # Explicitly use a Windows runner
 
     steps:
-    - name: Download RustDesk Portable Executable
+    - name: Download GetScreen.me Executable
       run: |
-        $RUSTDESK_VERSION = "1.4.0"
-        $EXE_FILENAME = "rustdesk-${RUSTDESK_VERSION}-x86_64.exe"
-        $DOWNLOAD_URL = "https://github.com/rustdesk/rustdesk/releases/download/${RUSTDESK_VERSION}/${EXE_FILENAME}"
-        $DOWNLOAD_PATH = "${env:TEMP}\${EXE_FILENAME}"
+        $GETSCREEN_DOWNLOAD_URL = "https://getscreen.me/download/getscreen.exe"
+        $GETSCREEN_EXE_PATH = "${env:TEMP}\getscreen.exe" # Download to temp directory
 
-        echo "Downloading RustDesk portable executable from: ${DOWNLOAD_URL}"
-        $MAX_RETRIES = 5
-        $RETRY_DELAY = 10 # seconds
-
-        for ($i = 0; $i -lt $MAX_RETRIES; $i++) {
-            try {
-                echo ("Attempt $($i + 1) of ${MAX_RETRIES}: Downloading ${DOWNLOAD_URL}")
-                curl.exe -L -o "$DOWNLOAD_PATH" "${DOWNLOAD_URL}"
-                if ($LASTEXITCODE -eq 0) {
-                    echo "Download successful."
-                    break
-                } else {
-                    throw "curl.exe failed with exit code $LASTEXITCODE"
-                }
-            } catch {
-                echo "Download failed: $_"
-                if ($i -lt ($MAX_RETRIES - 1)) {
-                    echo "Retrying in $RETRY_DELAY seconds..."
-                    Start-Sleep -Seconds $RETRY_DELAY
-                } else {
-                    echo "Max retries reached. Exiting."
-                    exit 1
-                }
+        echo "Downloading GetScreen.me from: ${GETSCREEN_DOWNLOAD_URL}"
+        try {
+            # Use curl.exe for reliable download with progress
+            curl.exe -L -o "$GETSCREEN_EXE_PATH" "$GETSCREEN_DOWNLOAD_URL"
+            if ($LASTEXITCODE -ne 0) {
+                throw "curl.exe failed with exit code $LASTEXITCODE"
             }
+            echo "Download successful."
+        } catch {
+            echo "Download failed: $_"
+            exit 1 # Fail the step if download fails
         }
+        echo "GetScreen.me downloaded to: ${GETSCREEN_EXE_PATH}"
+      shell: powershell # Specify PowerShell for Windows commands
 
-        echo "RustDesk portable executable downloaded to: ${DOWNLOAD_PATH}"
-
-        # Run the portable EXE briefly to allow it to unpack/self-extract to AppData\Local
-        echo "Running RustDesk briefly to allow self-extraction and setup..."
-        Start-Process -FilePath "$DOWNLOAD_PATH" -NoNewWindow -PassThru | Out-Null
-        Start-Sleep -Seconds 15 # Give it enough time to extract and potentially start its service
-        
-        echo "Initial RustDesk run complete. It should now be set up in AppData\Local."
-      shell: powershell
-
-    - name: Start RustDesk and Get Connection Info
+    - name: Launch GetScreen.me and Get Connection Info
       run: |
-        $RUSTDESK_EXE = "${env:LOCALAPPDATA}\RustDesk\rustdesk.exe"
+        $GETSCREEN_EXE_PATH = "${env:TEMP}\getscreen.exe"
 
-        if (-not (Test-Path $RUSTDESK_EXE)) {
-            echo "Error: RustDesk executable not found at ${RUSTDESK_EXE} after self-extraction. Aborting."
-            echo "Please ensure the initial run of the downloaded EXE successfully extracted it."
+        if (-not (Test-Path $GETSCREEN_EXE_PATH)) {
+            echo "Error: GetScreen.me executable not found at ${GETSCREEN_EXE_PATH}. Aborting."
             exit 1
         }
 
-        # --- NEW: Robust Service Management ---
-        $serviceName = "RustDesk" # Standard service name for RustDesk
-
-        # Check if the RustDesk service exists
-        if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-            echo "RustDesk service already exists. Attempting to stop and delete it for a clean start."
-            try {
-                Stop-Service -Name $serviceName -Force -ErrorAction Stop # Force stop
-                Remove-Service -Name $serviceName -ErrorAction Stop      # Delete the service
-                echo "Existing RustDesk service stopped and deleted successfully."
-                Start-Sleep -Seconds 5 # Give system time to clean up
-            } catch {
-                echo "Warning: Could not stop/delete existing RustDesk service. This might cause issues: $_"
-                # Continue, but note that this could be a persistent problem if it fails here.
-            }
-        } else {
-            echo "No existing RustDesk service found. Proceeding with fresh start."
-        }
-        # --- END NEW: Robust Service Management ---
-
-        echo "Starting RustDesk from its extracted location: ${RUSTDESK_EXE} with service flags."
-        # Start RustDesk in the background as a service.
-        # `--service` and `--enable-service` are used to run it headless and potentially register its service.
-        Start-Process -FilePath $RUSTDESK_EXE -ArgumentList "--service", "--enable-service" -NoNewWindow -PassThru | Out-Null
-        Start-Sleep -Seconds 30 # Give RustDesk time to initialize and generate ID/password
-
-        echo "Attempting to retrieve RustDesk ID and Password from log file or configuration..."
-        $APPDATA_RUSTDESK_PATH = "$env:APPDATA\RustDesk"
-        $RUSTDESK_LOG_DIR = "$APPDATA_RUSTDESK_PATH\log\service" 
+        echo "Launching GetScreen.me in background..."
+        # Launch GetScreen.me. It might self-extract or launch a service.
+        # We expect it to run silently without a GUI pop-up in this environment,
+        # or at least not block the script.
+        # No specific headless flags are documented for getscreen.exe, so run it directly.
+        Start-Process -FilePath "$GETSCREEN_EXE_PATH" -NoNewWindow -PassThru | Out-Null
         
-        echo "Checking log files in: ${RUSTDESK_LOG_DIR}"
+        Start-Sleep -Seconds 30 # Give GetScreen.me time to initialize, connect, and write logs/config
 
-        $logFileFound = $false
-        $waitRetries = 12 # Check up to 12 times
-        $waitDelay = 5 # Wait 5 seconds between checks (total up to 60 seconds)
-        $recentLogFile = $null
+        echo "Attempting to retrieve GetScreen.me connection information from common locations..."
 
-        for ($i = 0; $i -lt $waitRetries; $i++) {
-            $recentLogFile = Get-ChildItem $RUSTDESK_LOG_DIR -Filter "rustdesk_r*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            # Check if file exists AND has content
-            if ($recentLogFile -ne $null -and (Test-Path $recentLogFile.FullName) -and ( (Get-Item $recentLogFile.FullName).Length -gt 0) ) {
-                echo "Log file found and has content after $($i * $waitDelay) seconds."
-                $logFileFound = $true
-                break
+        # Define common GetScreen.me data directories (educated guesses based on Windows app behavior)
+        $APPDATA_PATH = "$env:APPDATA"       # C:\Users\user\AppData\Roaming
+        $LOCALAPPDATA_PATH = "$env:LOCALAPPDATA" # C:\Users\user\AppData\Local
+
+        $GETSCREEN_POSSIBLE_DIRS = @(
+            "${APPDATA_PATH}\GetScreen.me",
+            "${LOCALAPPDATA_PATH}\GetScreen.me",
+            "${APPDATA_PATH}\getscreen", # Sometimes developers use lowercase
+            "${LOCALAPPDATA_PATH}\getscreen"
+        )
+
+        $connectionInfoFound = $false
+        $extractedInfo = "No connection information found."
+
+        # Search for .log, .ini, .txt, or .json files in possible directories
+        foreach ($dir in $GETSCREEN_POSSIBLE_DIRS) {
+            echo "Searching for files in: ${dir}"
+            if (Test-Path $dir) {
+                # Find all relevant files in the directory and its subdirectories
+                Get-ChildItem -Path $dir -Recurse -Include "*.log", "*.ini", "*.txt", "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+                    $filePath = $_.FullName
+                    echo "Checking file content: ${filePath}"
+                    
+                    # Read file content safely
+                    $content = Get-Content $filePath -ErrorAction SilentlyContinue | Out-String
+
+                    # Define patterns to look for:
+                    # 1. Direct GetScreen.me connection link (e.g., getscreen.me/v/XXXXXXXX)
+                    # 2. Separate ID and Password (often numerical ID, alphanumeric password)
+                    $linkPattern = 'https?://getscreen\.me/v/\w+'
+                    $idPattern = 'ID:\s*(\d{3}\s*\d{3}\s*\d{3}|\d+)' # Matches "ID: 123 456 789" or "ID: 123456789"
+                    $passPattern = 'Password:\s*(\w+)'
+
+                    $linkMatch = [regex]::Match($content, $linkPattern)
+                    $idMatch = [regex]::Match($content, $idPattern)
+                    $passMatch = [regex]::Match($content, $passPattern)
+
+                    if ($linkMatch.Success) {
+                        $extractedInfo = "GetScreen.me Connection Link: $($linkMatch.Value)"
+                        $connectionInfoFound = $true
+                        break # Exit ForEach-Object and outer loop
+                    } elseif ($idMatch.Success -and $passMatch.Success) {
+                        $extractedInfo = "GetScreen.me ID: $($idMatch.Groups[1].Value), Password: $($passMatch.Groups[1].Value)"
+                        $connectionInfoFound = true
+                        break # Exit ForEach-Object and outer loop
+                    }
+                }
             }
-            echo "Waiting for log file in ${RUSTDESK_LOG_DIR}... (Attempt $($i + 1))"
-            Start-Sleep -Seconds $waitDelay
+            if ($connectionInfoFound) { break } # Exit outer foreach loop if info found
         }
 
-        if ($logFileFound) {
-            echo "--- Content of latest RustDesk service log file ($($recentLogFile.FullName)) ---"
-            Start-Sleep -Seconds 2 # Give it a moment to ensure it's fully written before reading
-            $logContent = Get-Content $recentLogFile.FullName -Raw
-            echo $logContent
-            echo "------------------------------------"
-
-            # Check for the service failure message
-            if ($logContent -like "*start_service failed*") {
-                echo "ERROR: RustDesk service failed to start. This is preventing ID/password generation."
-                echo "This might be due to permissions or environment restrictions on the GitHub Actions runner."
-                exit 1 # Fail here if service failed
-            }
-
-            $rustdeskId = [regex]::Match($logContent, 'ID: (\d+)').Groups[1].Value
-            $rustdeskPass = [regex]::Match($logContent, 'Password: (\w+)').Groups[1].Value
-
-            if (-not [string]::IsNullOrEmpty($rustdeskId)) {
-                echo "RustDesk ID: ${rustdeskId}"
-                echo "RustDesk Password (check logs above or retrieve manually): ${rustdeskPass}"
-            } else {
-                echo "Could not find RustDesk ID in log file after reading. Manual retrieval is likely required."
-                echo "This could be because the service started but didn't output the ID/password to logs immediately."
-            }
-        } else {
-            echo "No recent log files found in ${RUSTDESK_LOG_DIR} after waiting. Manual retrieval of ID/Password is required."
+        # Output the found information or a message if not found
+        echo "--- GetScreen.me Connection Information ---"
+        echo "$extractedInfo"
+        if (-not $connectionInfoFound) {
+            echo "⚠️ No GetScreen.me connection information found in common log/config files."
+            echo "This is expected if GetScreen.me does not output this information in a headless manner."
+            echo "Manual retrieval might be required by connecting to the runner via SSH or another method."
         }
+        echo "---------------------------------------"
 
-        echo "--- Manual Connection Details ---"
-        echo "Connect using the RustDesk client on your local machine."
-        echo "You will need the RustDesk ID and Password. Look for them in the RustDesk UI after it starts on the runner,"
-        echo "or within its configuration/log files (typically in %APPDATA%\RustDesk), or use an SSH session to the runner to view them."
-        echo "---------------------------------"
-
-        echo "Keeping runner alive for 30 minutes..."
-        Start-Sleep -Seconds 1800 # Replaced 'timeout' with 'Start-Sleep'
-      shell: powershell
+        echo "Keeping runner alive for 30 minutes for potential manual connection..."
+        Start-Sleep -Seconds 1800 # Keep the runner alive for 30 minutes (1800 seconds)
+      shell: powershell # Ensure PowerShell is used for this step

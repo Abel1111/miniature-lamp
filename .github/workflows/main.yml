@@ -77,6 +77,8 @@ jobs:
           done
 
           RUSTDESK_ID=$(grep 'client_id = "' "$RUSTDESK_CONFIG_PATH" | cut -d'"' -f2)
+          # RustDesk's password behavior can vary. It might generate a permanent password
+          # or require you to set one. We'll try to extract 'permanent_password'.
           RUSTDESK_PASSWORD=$(grep 'permanent_password = "' "$RUSTDESK_CONFIG_PATH" | cut -d'"' -f2)
 
           if [ -z "$RUSTDESK_ID" ]; then
@@ -99,14 +101,15 @@ jobs:
           echo "rustdesk_password=$RUSTDESK_PASSWORD" >> "$GITHUB_OUTPUT"
           
           # Use GITHUB_STEP_SUMMARY for better visibility in GitHub UI
-          echo "
+          # Using a heredoc for multiline output is more robust for YAML parsing
+          cat << 'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           To connect using RustDesk:
           1. Download the RustDesk client from https://rustdesk.com/download.html
           2. Open the RustDesk client.
-          3. Enter the ID: $RUSTDESK_ID
-          4. Enter the Password: $RUSTDESK_PASSWORD
+          3. Enter the ID: ${RUSTDESK_ID}
+          4. Enter the Password: ${RUSTDESK_PASSWORD}
           5. Click 'Connect'.
-          " | tee -a "$GITHUB_STEP_SUMMARY" # Corrected: tee should be inside the run block and arguments quoted
+EOF
 
       - name: Keep Alive
         run: |
